@@ -7,6 +7,8 @@ import psycopg
 from psycopg import Connection
 from psycopg.rows import dict_row
 
+from launchpilot.persistence.tenant import current_workspace_id
+
 _MIGRATIONS = (
     (
         1,
@@ -376,17 +378,40 @@ _MIGRATIONS = (
 
 
 class PostgresDatabase:
-    """Shared PostgreSQL connection boundary and minimal schema migrations."""
+    """Shared PostgreSQL connection boundary and minimal schema migrations.
 
-    def __init__(self, database_url: str) -> None:
+    ``set_tenant_guc`` makes every connection stamp the active request's workspace
+    onto the transaction-local ``app.workspace_id`` GUC that RLS policies read; the
+    runtime app store enables it while the admin store (migrations, seeding, auth
+    lookups) leaves it off so it keeps bypassing RLS as the superuser.
+    """
+
+    def __init__(
+        self,
+        database_url: str,
+        *,
+        set_tenant_guc: bool = False,
+        run_migrations: bool = True,
+    ) -> None:
         if not database_url.startswith(("postgresql://", "postgres://")):
             raise ValueError("DATABASE_URL must use PostgreSQL")
         self.database_url = database_url
-        self._initialize()
+        self._set_tenant_guc = set_tenant_guc
+        if run_migrations:
+            self._initialize()
 
     @contextmanager
     def connect(self) -> Iterator[Connection[dict[str, object]]]:
         with psycopg.connect(self.database_url, row_factory=dict_row) as connection:
+            if self._set_tenant_guc:
+                workspace_id = current_workspace_id()
+                if workspace_id is not None:
+                    # Transaction-local (is_local=true), so it never leaks to the
+                    # next borrower of a pooled connection.
+                    connection.execute(
+                        "SELECT set_config('app.workspace_id', %s, true)",
+                        (workspace_id,),
+                    )
             yield connection
 
     def _initialize(self) -> None:

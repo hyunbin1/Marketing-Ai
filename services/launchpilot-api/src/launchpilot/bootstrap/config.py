@@ -64,6 +64,7 @@ class Settings:
     otel_service_name: str
     otel_exporter_endpoint: str | None
     database_url: str
+    app_database_url: str | None
     elasticsearch_url: str
     elasticsearch_index: str
     elasticsearch_api_key: str | None
@@ -131,6 +132,7 @@ class Settings:
                 "DATABASE_URL",
                 "postgresql://launchpilot:launchpilot-local@127.0.0.1:5432/launchpilot",
             ),
+            app_database_url=os.getenv("APP_DATABASE_URL"),
             elasticsearch_url=elasticsearch_url,
             elasticsearch_index=os.getenv(
                 "ELASTICSEARCH_INDEX", "launchpilot-documents-v1"

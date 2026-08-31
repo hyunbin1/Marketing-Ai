@@ -46,7 +46,25 @@ from launchpilot.persistence.postgres import PostgresDatabase
 
 @lru_cache
 def repository_store() -> PostgresDatabase:
+    """Admin store (superuser). Runs migrations, seeding, and auth/scope lookups;
+    bypasses RLS. Used for everything that must read across tenants or resolve which
+    tenant a request belongs to before the tenant context is known."""
     return PostgresDatabase(settings().database_url)
+
+
+@lru_cache
+def app_repository_store() -> PostgresDatabase:
+    """Runtime store for tenant domain data. Connects as the non-superuser app_user
+    (APP_DATABASE_URL) so RLS applies, and stamps app.workspace_id from the request
+    context onto each connection. Falls back to the admin URL when APP_DATABASE_URL
+    is unset, in which case enforcement stays inert (superuser bypasses RLS)."""
+    config = settings()
+    repository_store()  # ensure migrations have run under the admin store
+    return PostgresDatabase(
+        config.app_database_url or config.database_url,
+        set_tenant_guc=True,
+        run_migrations=False,
+    )
 
 
 def campaign_service() -> CampaignService:
@@ -69,15 +87,17 @@ def observation_service() -> ObservationService:
 
 
 def structured_retrieval_service() -> StructuredRetrievalService:
+    # Tenant domain reads — go through the RLS-enforced app store.
     return StructuredRetrievalService(
-        PostgresStructuredRetrievalRepository(repository_store())
+        PostgresStructuredRetrievalRepository(app_repository_store())
     )
 
 
 def text_retrieval_service() -> TextRetrievalService:
     config = settings()
     return TextRetrievalService(
-        PostgresCampaignDocumentRepository(repository_store()),
+        # Tenant domain reads/writes — go through the RLS-enforced app store.
+        PostgresCampaignDocumentRepository(app_repository_store()),
         ElasticsearchCampaignDocumentSearch(
             config.elasticsearch_url,
             config.elasticsearch_index,
