@@ -1,0 +1,576 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>*{margin:0}img{max-width:100%}[hidden]{display:none!important}</style>
+<title>Gemini Eval Judge 설계서</title>
+<meta name="description" content="LaunchPilot 평가 시스템의 Gemini 기반 채점관(Judge) 서브시스템 기술 상세 설계서.">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Serif:wght@500;600&display=swap">
+<style>
+  :root {
+    --ground: #f5f7f9;
+    --surface: #ffffff;
+    --surface-2: #eef1f4;
+    --ink: #16202b;
+    --ink-soft: #35485a;
+    --muted: #64768a;
+    --faint: #8697a8;
+    --line: #dde3ea;
+    --line-strong: #c4ceda;
+    --accent: #0e7c86;
+    --accent-soft: #e0f0f1;
+    --accent-ink: #0a5b62;
+    --accept: #2f8f4e;
+    --accept-soft: #e4f2e8;
+    --reject: #c2413a;
+    --reject-soft: #f7e5e4;
+    --indet: #a9741e;
+    --indet-soft: #f5ecd9;
+    --plain-bg: #fff8ec;
+    --plain-line: #e9d9b4;
+    --plain-ink: #8a6316;
+    --code-bg: #0f1720;
+    --code-ink: #d6e2ee;
+    --code-line: #263443;
+    --shadow: 0 1px 2px rgba(22,32,43,.04), 0 6px 20px rgba(22,32,43,.06);
+  }
+  :root:not([data-theme="light"]) {
+    @media (prefers-color-scheme: dark) {
+      --ground: #0c1116;
+      --surface: #131b23;
+      --surface-2: #1a252f;
+      --ink: #e7edf3;
+      --ink-soft: #b7c4d2;
+      --muted: #8798a9;
+      --faint: #63768a;
+      --line: #253340;
+      --line-strong: #33475a;
+      --accent: #3fb2bc;
+      --accent-soft: #103237;
+      --accent-ink: #6fd0d9;
+      --accept: #5cc07c;
+      --accept-soft: #12301d;
+      --reject: #e2726b;
+      --reject-soft: #34191a;
+      --indet: #d6a94e;
+      --indet-soft: #322818;
+      --plain-bg: #241d10;
+      --plain-line: #4a3c1d;
+      --plain-ink: #e2c47f;
+      --code-bg: #0a0f15;
+      --code-ink: #cddae7;
+      --code-line: #1e2b38;
+      --shadow: 0 1px 2px rgba(0,0,0,.3), 0 8px 26px rgba(0,0,0,.35);
+    }
+  }
+  :root[data-theme="dark"] {
+    --ground: #0c1116;
+    --surface: #131b23;
+    --surface-2: #1a252f;
+    --ink: #e7edf3;
+    --ink-soft: #b7c4d2;
+    --muted: #8798a9;
+    --faint: #63768a;
+    --line: #253340;
+    --line-strong: #33475a;
+    --accent: #3fb2bc;
+    --accent-soft: #103237;
+    --accent-ink: #6fd0d9;
+    --accept: #5cc07c;
+    --accept-soft: #12301d;
+    --reject: #e2726b;
+    --reject-soft: #34191a;
+    --indet: #d6a94e;
+    --indet-soft: #322818;
+    --plain-bg: #241d10;
+    --plain-line: #4a3c1d;
+    --plain-ink: #e2c47f;
+    --code-bg: #0a0f15;
+    --code-ink: #cddae7;
+    --code-line: #1e2b38;
+    --shadow: 0 1px 2px rgba(0,0,0,.3), 0 8px 26px rgba(0,0,0,.35);
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--ground);
+    color: var(--ink);
+    font-family: "IBM Plex Sans KR", system-ui, sans-serif;
+    font-size: 16px;
+    line-height: 1.7;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 1180px; margin: 0 auto; padding: 0 clamp(18px, 4vw, 56px); }
+
+  header.masthead {
+    border-bottom: 1px solid var(--line);
+    background:
+      radial-gradient(120% 140% at 88% -20%, var(--accent-soft) 0%, transparent 55%),
+      var(--surface);
+  }
+  .mast-inner { padding: clamp(38px, 6vw, 72px) 0 clamp(30px, 4vw, 46px); }
+  .kicker {
+    font-family: "IBM Plex Mono", monospace;
+    font-size: 12.5px; letter-spacing: .16em; text-transform: uppercase;
+    color: var(--accent-ink); font-weight: 600;
+    display: flex; gap: 12px; align-items: center; flex-wrap: wrap;
+  }
+  .kicker .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); display: inline-block; }
+  h1.doc-title {
+    font-family: "IBM Plex Serif", Georgia, serif; font-weight: 600;
+    font-size: clamp(30px, 5.4vw, 52px); line-height: 1.14; letter-spacing: -.015em;
+    text-wrap: balance; margin: 18px 0 14px;
+  }
+  .doc-sub { font-size: clamp(16px, 2.2vw, 19px); color: var(--ink-soft); max-width: 62ch; margin: 0; }
+  .mast-meta {
+    margin-top: 30px; display: flex; flex-wrap: wrap; gap: 10px 26px;
+    font-family: "IBM Plex Mono", monospace; font-size: 12.5px; color: var(--muted);
+  }
+  .mast-meta b { color: var(--ink); font-weight: 600; }
+
+  .layout { display: block; }
+  @media (min-width: 1000px) {
+    .layout { display: grid; grid-template-columns: 220px 1fr; gap: 52px; align-items: start; }
+    nav.toc { position: sticky; top: 26px; }
+  }
+  nav.toc { padding: 30px 0; font-size: 13.5px; }
+  nav.toc .toc-h {
+    font-family: "IBM Plex Mono", monospace; font-size: 11px; letter-spacing: .16em;
+    text-transform: uppercase; color: var(--faint); margin-bottom: 14px;
+  }
+  nav.toc ol { list-style: none; margin: 0; padding: 0; counter-reset: toc; }
+  nav.toc li { counter-increment: toc; margin: 2px 0; }
+  nav.toc a {
+    color: var(--muted); text-decoration: none; display: flex; gap: 10px;
+    padding: 5px 8px; border-radius: 6px; border-left: 2px solid transparent;
+    transition: color .15s, background .15s;
+  }
+  nav.toc a::before {
+    content: counter(toc, decimal-leading-zero);
+    font-family: "IBM Plex Mono", monospace; font-size: 11px; color: var(--faint); padding-top: 1px;
+  }
+  nav.toc a:hover { color: var(--ink); background: var(--surface-2); }
+
+  main { padding: 12px 0 90px; min-width: 0; }
+  section { padding-top: 46px; scroll-margin-top: 24px; }
+  section > .sec-head { margin-bottom: 22px; }
+  .sec-num { font-family: "IBM Plex Mono", monospace; font-size: 12.5px; font-weight: 600; color: var(--accent-ink); letter-spacing: .08em; }
+  h2 {
+    font-weight: 700; font-size: clamp(22px, 3.2vw, 29px); letter-spacing: -.01em;
+    line-height: 1.25; margin: 6px 0 0; text-wrap: balance;
+  }
+  h3 { font-weight: 600; font-size: 18px; margin: 34px 0 10px; letter-spacing: -.005em; }
+  p { margin: 0 0 15px; max-width: 70ch; }
+  main a { color: var(--accent-ink); }
+  strong { font-weight: 600; }
+  .lead { font-size: 17.5px; color: var(--ink-soft); max-width: 68ch; }
+  code {
+    font-family: "IBM Plex Mono", monospace; font-size: .85em; background: var(--surface-2);
+    padding: 1px 6px; border-radius: 5px; border: 1px solid var(--line);
+    color: var(--accent-ink); white-space: nowrap;
+  }
+
+  /* Plain-language intro box */
+  .plain {
+    display: flex; gap: 13px; align-items: flex-start;
+    background: var(--plain-bg); border: 1px solid var(--plain-line);
+    border-radius: 12px; padding: 14px 18px; margin: 0 0 20px; max-width: 72ch;
+  }
+  .plain .p-mark {
+    flex: 0 0 auto; font-size: 12px; font-weight: 700; color: var(--plain-ink);
+    background: var(--surface); border: 1px solid var(--plain-line);
+    border-radius: 20px; padding: 2px 11px; margin-top: 2px;
+  }
+  .plain p { margin: 0; font-size: 15px; color: var(--ink-soft); max-width: none; }
+  .plain strong { color: var(--ink); }
+
+  .principles { display: grid; gap: 14px; grid-template-columns: 1fr; margin: 6px 0 4px; }
+  @media (min-width: 620px) { .principles { grid-template-columns: 1fr 1fr; } }
+  .principle { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 18px 20px; box-shadow: var(--shadow); }
+  .principle .p-tag { font-family: "IBM Plex Mono", monospace; font-size: 11px; letter-spacing: .1em; text-transform: uppercase; color: var(--accent-ink); font-weight: 600; }
+  .principle h4 { margin: 8px 0 6px; font-size: 16.5px; font-weight: 600; }
+  .principle p { font-size: 14px; color: var(--muted); margin: 0; max-width: none; }
+
+  .diagram { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: clamp(18px, 3vw, 30px); margin: 22px 0; box-shadow: var(--shadow); overflow-x: auto; }
+  .phase-label { font-family: "IBM Plex Mono", monospace; font-size: 11.5px; letter-spacing: .12em; text-transform: uppercase; font-weight: 600; color: var(--muted); display: flex; align-items: center; gap: 10px; margin-bottom: 14px; flex-wrap: wrap; }
+  .phase-tag { background: var(--accent-soft); color: var(--accent-ink); border-radius: 20px; padding: 3px 11px; font-size: 11px; }
+  .flow { display: flex; align-items: stretch; gap: 12px; flex-wrap: nowrap; min-width: min-content; }
+  .node { background: var(--surface-2); border: 1px solid var(--line-strong); border-radius: 10px; padding: 12px 14px; min-width: 128px; flex: 0 0 auto; display: flex; flex-direction: column; gap: 4px; }
+  .node .n-role { font-family: "IBM Plex Mono", monospace; font-size: 10.5px; letter-spacing: .08em; text-transform: uppercase; color: var(--faint); }
+  .node .n-name { font-weight: 600; font-size: 14px; }
+  .node .n-desc { font-size: 12px; color: var(--muted); }
+  .node.judge { background: var(--accent-soft); border-color: var(--accent); }
+  .node.judge .n-name { color: var(--accent-ink); }
+  .node.policy { background: var(--surface); border-style: dashed; border-color: var(--line-strong); }
+  .arrow { align-self: center; flex: 0 0 auto; color: var(--faint); font-family: "IBM Plex Mono", monospace; font-size: 18px; padding: 0 2px; }
+  .stack { display: flex; flex-direction: column; gap: 8px; flex: 0 0 auto; }
+  .barrier { margin: 18px 0; border-top: 1px dashed var(--line-strong); position: relative; }
+  .barrier span { position: absolute; top: -10px; left: 16px; background: var(--surface); padding: 0 10px; font-family: "IBM Plex Mono", monospace; font-size: 11px; color: var(--muted); }
+
+  .table-scroll { overflow-x: auto; margin: 18px 0; border: 1px solid var(--line); border-radius: 12px; box-shadow: var(--shadow); }
+  table { border-collapse: collapse; width: 100%; font-size: 14px; background: var(--surface); min-width: 560px; }
+  th, td { text-align: left; padding: 11px 15px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  thead th { background: var(--surface-2); font-size: 11.5px; letter-spacing: .05em; text-transform: uppercase; color: var(--muted); font-weight: 600; white-space: nowrap; }
+  tbody tr:last-child td { border-bottom: none; }
+  td.mono, th.mono { font-family: "IBM Plex Mono", monospace; font-size: 12.5px; color: var(--accent-ink); white-space: nowrap; }
+  td .sub { display: block; color: var(--muted); font-size: 12.5px; margin-top: 3px; }
+
+  pre { background: var(--code-bg); color: var(--code-ink); border: 1px solid var(--code-line); border-radius: 12px; padding: 18px 20px; overflow-x: auto; font-family: "IBM Plex Mono", monospace; font-size: 13px; line-height: 1.62; margin: 18px 0; }
+  pre .cm { color: #7d92a6; }
+  pre .kw { color: #6fd0d9; }
+  pre .fn { color: #e2c07a; }
+
+  .badge { display: inline-flex; align-items: center; gap: 6px; font-family: "IBM Plex Mono", monospace; font-size: 11.5px; font-weight: 600; padding: 2px 9px; border-radius: 20px; white-space: nowrap; }
+  .badge.accept { background: var(--accept-soft); color: var(--accept); }
+  .badge.reject { background: var(--reject-soft); color: var(--reject); }
+  .badge.indet { background: var(--indet-soft); color: var(--indet); }
+
+  .note { display: flex; gap: 14px; background: var(--surface); border: 1px solid var(--line); border-left: 3px solid var(--accent); border-radius: 10px; padding: 15px 18px; margin: 18px 0; box-shadow: var(--shadow); }
+  .note .n-mark { font-family: "IBM Plex Mono", monospace; font-size: 11px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--accent-ink); flex: 0 0 auto; padding-top: 2px; }
+  .note p { margin: 0; font-size: 14.5px; color: var(--ink-soft); }
+
+  .formula { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 20px 22px; margin: 18px 0; box-shadow: var(--shadow); }
+  .formula .f-title { font-family: "IBM Plex Mono", monospace; font-size: 12px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); margin-bottom: 12px; }
+  .cond { display: flex; gap: 12px; align-items: baseline; padding: 9px 0; border-bottom: 1px dashed var(--line); font-size: 14.5px; flex-wrap: wrap; }
+  .cond:last-child { border-bottom: none; }
+  .cond .c-expr { font-weight: 600; color: var(--accent-ink); flex: 0 0 auto; }
+  .cond .c-and { color: var(--faint); font-family: "IBM Plex Mono", monospace; font-size: 12px; }
+
+  ul.clean { padding-left: 0; list-style: none; margin: 14px 0; }
+  ul.clean li { position: relative; padding-left: 24px; margin: 10px 0; max-width: 70ch; }
+  ul.clean li::before { content: ""; position: absolute; left: 4px; top: 11px; width: 7px; height: 7px; border-radius: 2px; background: var(--accent); }
+  ul.clean li strong { color: var(--ink); }
+
+  footer.doc-foot { border-top: 1px solid var(--line); padding: 30px 0 50px; color: var(--muted); font-size: 13px; font-family: "IBM Plex Mono", monospace; }
+  footer.doc-foot a { color: var(--accent-ink); }
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+</head>
+<body>
+<header class="masthead">
+  <div class="wrap mast-inner">
+    <div class="kicker"><span class="dot"></span> LaunchPilot Evaluation · 상세 설계서</div>
+    <h1 class="doc-title">Gemini Eval Judge 서브시스템</h1>
+    <p class="doc-sub">평가받는 에이전트와 완전히 분리된 채점관(Judge)이, 실행 <em>전</em>에는 성공 기준을 감사하고 실행 <em>후</em>에는 답을 채점하되 — 최종 점수는 결정론적 정책 코드가 계산한다. 시험을 오염시키거나 조작할 수 없게 만든 자동 평가 계층의 기술 설계.</p>
+    <div class="mast-meta">
+      <span>MODULE · <b>launchpilot.evaluation.judging</b></span>
+      <span>JUDGE · <b>Gemini 3.7 Flash / medium</b></span>
+      <span>RUBRICS · <b>spec-adjudication-v1 · task-answer-v1</b></span>
+      <span>POLICY · <b>task-answer-policy-v1</b></span>
+    </div>
+  </div>
+</header>
+
+<div class="wrap layout">
+  <nav class="toc">
+    <div class="toc-h">목차</div>
+    <ol>
+      <li><a href="#purpose">목적과 설계 목표</a></li>
+      <li><a href="#actors">주체와 상관관계</a></li>
+      <li><a href="#architecture">모듈 아키텍처</a></li>
+      <li><a href="#contracts">데이터 계약</a></li>
+      <li><a href="#phase1">Phase 1 · 스펙 판정</a></li>
+      <li><a href="#phase2">Phase 2 · 답 채점</a></li>
+      <li><a href="#policy">결정론적 정책</a></li>
+      <li><a href="#invariants">격리 불변식</a></li>
+      <li><a href="#provenance">불변성과 체크포인트</a></li>
+      <li><a href="#ops">운영과 실행</a></li>
+      <li><a href="#status">현재 지위와 게이트</a></li>
+    </ol>
+  </nav>
+
+  <main>
+    <!-- 1 -->
+    <section id="purpose">
+      <div class="sec-head"><div class="sec-num">01</div><h2>목적과 설계 목표</h2></div>
+      <p class="lead">이 서브시스템은 "우리 마케팅 RAG 에이전트가 <strong>같은 문제를 예전보다 더 잘 풀게 됐는지</strong>"를 신뢰할 수 있게 측정한다. 핵심 난제는 단 하나다 — 채점을 또 다른 LLM에게 맡기면, 그 LLM이 학생을 돕거나(정보 누출) 채점 기준을 몰래 바꿔(점수 조작) 시험 전체가 무의미해진다는 것.</p>
+      <p>설계 전체가 그 오염 경로를 <strong>구조적으로 차단</strong>하는 데 맞춰져 있다. Judge는 에이전트가 쓰는 <code>LLM_MODEL</code>·tool·prompt·retrieval route와 독립된 evaluation adapter이며, 아래 네 원칙이 모든 결정을 지배한다.</p>
+      <div class="principles">
+        <div class="principle"><div class="p-tag">Principle 01</div><h4>채점관은 에이전트가 아니다</h4><p>Judge 설정은 에이전트 모델 설정에서 절대 상속되지 않는다(<code>config.py</code>). 모델은 <code>gemini-3.7-flash</code>로 고정, tool 없이 구조화 출력만 반환하는 one-shot 어댑터다.</p></div>
+        <div class="principle"><div class="p-tag">Principle 02</div><h4>딱 두 시점에만 동작</h4><p>실행 <strong>전</strong> 성공 기준(Spec) 감사, 실행 <strong>후</strong> 답(Answer) 채점. 그 사이 에이전트 실행에는 관여하지 않는다.</p></div>
+        <div class="principle"><div class="p-tag">Principle 03</div><h4>판정과 점수의 분리</h4><p>LLM은 원자 단위 사실 판정만 반환한다. <code>task_success</code>는 사람이 짠 결정론적 <code>policy.py</code>가 계산한다 — 프롬프트를 바꿔도 점수 의미가 몰래 바뀌지 못한다.</p></div>
+        <div class="principle"><div class="p-tag">Principle 04</div><h4>기계 판정 ≠ 사람 검수</h4><p>LLM 판정은 항상 <code>machine_adjudicated</code>로 표기하며 human review로 위장하지 않는다. 근거 부재는 부재의 증명이 아니다.</p></div>
+      </div>
+    </section>
+
+    <!-- 2 -->
+    <section id="actors">
+      <div class="sec-head"><div class="sec-num">02</div><h2>주체와 상관관계 — 누가, 무엇을, 왜</h2></div>
+      <p>아키텍처를 이해하려면 먼저 등장 주체(주어)와 각자가 다루는 대상(목적어)을 분리해야 한다. 가장 중요한 규칙은 <strong>"학생에게는 문제만, 채점관에게는 기준만"</strong> — 정보가 섞이면 시험이 오염된다.</p>
+      <div class="table-scroll">
+        <table>
+          <thead><tr><th>주체 (주어)</th><th>대상 (목적어)</th><th>존재 이유 (왜)</th></tr></thead>
+          <tbody>
+            <tr><td><b>System under test</b><span class="sub">평가받는 마케팅 RAG 에이전트</span></td><td>발화·언어·world ID·supplied context를 받아 <b>Answer + Evidence</b> 생성</td><td>측정 대상. required facts·qrels·taxonomy는 절대 보지 못한다.</td></tr>
+            <tr><td><b>Gemini Judge</b><span class="sub">GeminiJudgeClient</span></td><td>Spec / Answer에 대한 <b>구조화된 원자 판정</b>만 반환</td><td>독립 채점관. 정답 문장·최종 점수는 만들지 않는다.</td></tr>
+            <tr><td><b>Spec Adjudicator</b><span class="sub">GeminiSpecificationAdjudicator</span></td><td>Problem + 후보 Spec + known-relevant Evidence → <b>2-pass 합의</b></td><td>채점 전에 채점 기준 자체의 타당성을 감사한다.</td></tr>
+            <tr><td><b>Task Grader</b><span class="sub">GeminiTaskTrialGrader</span></td><td>완료된 trial 1건 → <b>TaskJudgment → TrialGrade</b></td><td>답을 사실 단위로 채점하되 gold 답을 노출하지 않는다.</td></tr>
+            <tr><td><b>Grading Policy</b><span class="sub">TaskGradingPolicy · policy.py</span></td><td>원자 판정 → <b>task_success · coverage · groundedness</b></td><td>결정론적 집계. 점수 정의를 코드로 고정한다.</td></tr>
+            <tr><td><b>World Evidence Resolver</b><span class="sub">WorldEvidenceResolver</span></td><td>evidence_ref → <b>hash 검증된 canonical 레코드</b></td><td>채점 근거가 실제 불변 현실 스냅샷임을 보증한다.</td></tr>
+            <tr><td><b>Materializer</b><span class="sub">materialize.py</span></td><td>판정 결과 → <b>원본 불변 파생 스냅샷</b></td><td>frontier 원본을 절대 변형하지 않고 append-only로 기록한다.</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <h3>관찰되는 여섯 관계</h3>
+      <p>이 관계들은 하나의 RAG 점수로 합쳐지지 않는다. <code>Problem → Answer</code>가 릴리즈의 중심 지표이고, 나머지는 실패 원인과 아키텍처 트레이드오프를 설명하는 진단용이다.</p>
+      <div class="table-scroll">
+        <table>
+          <thead><tr><th>관계</th><th>근거 소스</th><th>판단 목적</th></tr></thead>
+          <tbody>
+            <tr><td class="mono">World → Evidence</td><td>world provenance, evidence judgment</td><td>근거가 실제 현실을 나타내는가</td></tr>
+            <tr><td class="mono">Problem → Evidence</td><td>qrels/pool, retrieval diagnostics</td><td>필요한 근거를 확보했는가</td></tr>
+            <tr><td class="mono">Evidence → Answer</td><td>claim support, citation mapping</td><td>답의 주장이 근거로 지지되는가 (환각 탐지)</td></tr>
+            <tr><td class="mono" style="color:var(--accept)">Problem → Answer</td><td>required facts / behavior</td><td><b>사용자 문제를 실제로 풀었는가 — 핵심</b></td></tr>
+            <tr><td class="mono">Reference → Answer</td><td>제한된 reference / calibrated grader</td><td>닫힌 정답이 있을 때 일치하는가</td></tr>
+            <tr><td class="mono">Trial → Operation</td><td>trace / telemetry</td><td>비용·지연·안정성 대가는 얼마인가</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- 3 -->
+    <section id="architecture">
+      <div class="sec-head"><div class="sec-num">03</div><h2>모듈 아키텍처</h2></div>
+      <p><code>src/launchpilot/evaluation/judging/</code> 패키지는 단일 책임 모듈들의 얇은 조립이다. 각 모듈은 위 주체 하나에 대응한다.</p>
+      <div class="table-scroll">
+        <table>
+          <thead><tr><th>파일</th><th class="mono">LOC</th><th>책임</th></tr></thead>
+          <tbody>
+            <tr><td class="mono">config.py</td><td class="mono">48</td><td>Gemini judge 설정. 모델/thinking level 고정, 에이전트와 분리(<code>EVAL_JUDGE_*</code>).</td></tr>
+            <tr><td class="mono">contracts.py</td><td class="mono">140</td><td>구조화 판정 스키마(Pydantic). accept는 모든 체크 통과를 강제하는 validator 포함.</td></tr>
+            <tr><td class="mono">gemini_client.py</td><td class="mono">129</td><td>Vertex AI <code>generateContent</code> 어댑터. retry, seed, JSON schema, telemetry, fingerprint.</td></tr>
+            <tr><td class="mono">world_evidence.py</td><td class="mono">151</td><td>evidence_ref를 hash 검증된 canonical world 레코드로 해석.</td></tr>
+            <tr><td class="mono">spec_adjudicator.py</td><td class="mono">195</td><td>2-pass 독립 판정과 만장일치 합의(Phase 1).</td></tr>
+            <tr><td class="mono">task_grader.py</td><td class="mono">182</td><td>완료된 trial의 원자 채점(Phase 2). TrialGrader 구현.</td></tr>
+            <tr><td class="mono">policy.py</td><td class="mono">176</td><td>결정론적 집계 + IR 진단(recall/precision/nDCG).</td></tr>
+            <tr><td class="mono">materialize.py</td><td class="mono">229</td><td>원본 불변 파생 dataset 스냅샷 생성.</td></tr>
+            <tr><td class="mono">cli.py</td><td class="mono">193</td><td><code>preflight</code> / <code>adjudicate</code> — 체크포인트 재개, live-call 확인.</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="note"><div class="n-mark">경계</div><p><code>evals/</code>는 평가 데이터와 진입점, <code>src/.../evaluation/</code>은 재사용 계약과 실행 코드, <code>tests/</code>는 그 경계가 깨지지 않는지 검사한다. 세 디렉터리가 서로 다른 평가 체계를 뜻하지 않는다.</p></div>
+    </section>
+
+    <!-- 4 -->
+    <section id="contracts">
+      <div class="sec-head"><div class="sec-num">04</div><h2>데이터 계약 — 주고받는 데이터의 정해진 형식</h2></div>
+      <div class="plain"><span class="p-mark">쉽게</span><p><strong>"계약(contract)"은 부품끼리 주고받는 데이터의 정해진 서식이에요.</strong> 예를 들어 택배 송장에 반드시 "보내는 사람 / 받는 사람 / 무게" 칸이 있어야 하듯, 채점관이 반환하는 데이터도 칸이 미리 정해져 있어요. 여기서 핵심은 — <strong>그 서식에 "최종 점수" 칸을 일부러 안 만들었다</strong>는 점이에요.</p></div>
+      <p>모든 판정은 형식이 고정된 데이터 객체로 오간다. 채점관 LLM이 답을 채점하면 <code>TaskJudgment</code>라는 서식으로 반환하는데, 이 서식에는 "합격/불합격" 같은 <strong>종합 결론 칸이 없다.</strong> 오직 잘게 쪼갠 개별 판정만 담긴다 — 종합은 뒤이어 정책 코드가 맡기 때문이다(7번 참고).</p>
+      <h3>사후 채점 서식 — 채점관이 채우는 칸들</h3>
+      <pre><span class="cm"># 채점관 LLM이 반환하는 "답안 채점표". 종합 합격 여부 칸은 일부러 없음.</span>
+<span class="kw">TaskJudgment</span> = {
+  fact_judgments   : [ 필요한 사실마다 → 답에 담겼나? (담김 / 부분 / 안 담김) ],
+  claim_judgments  : [ 답 속 주장마다 → 근거가 뒷받침하나? (지지 / 반박 / 불명) ],
+  behavior         : 올바르게 행동했나? (답할 상황에 답했나 등),
+  answer_relevance : 질문에 맞는 답인가? (맞음 / 부분 / 엉뚱),
+  indeterminate_reason : 판단이 불가능했다면 그 이유
+}</pre>
+      <p>즉 채점관은 "이 사실은 담겼고, 저 주장은 근거가 없고…" 같은 <strong>작은 사실 판단</strong>만 칸칸이 채운다. 이 조각들을 모아 점수를 내는 일은 채점관의 몫이 아니다.</p>
+      <h3>사전 판정 서식 — 다섯 개의 합격 체크</h3>
+      <p>시험 전 기준 검사(5번 Phase 1)에서 채점관이 채우는 서식에는 <strong>합격 조건 다섯 개</strong>가 예/아니오로 들어간다. 그리고 <strong>다섯 개가 전부 "예"일 때만 최종 판정을 accept로 적을 수 있다</strong> — 하나라도 "아니오"인데 accept로 적으면 서식 자체가 거부된다(코드가 강제).</p>
+      <div class="table-scroll">
+        <table>
+          <thead><tr><th>합격 체크</th><th>쉽게 말하면</th></tr></thead>
+          <tbody>
+            <tr><td class="mono">problem_spec_aligned</td><td>이 성공 기준이 사용자가 진짜 원한 것을 대표하나?</td></tr>
+            <tr><td class="mono">required_facts_supported</td><td>성공에 필요한 사실마다 뒷받침 근거가 최소 1개씩 있나?</td></tr>
+            <tr><td class="mono">answerability_consistent</td><td>"답할 수 있는 문제"라는 표시가 실제 근거와 맞나?</td></tr>
+            <tr><td class="mono">behavior_consistent</td><td>기대하는 행동(답하기/되묻기)이 문제 성격과 맞나?</td></tr>
+            <tr><td class="mono">tool_independent</td><td>특정 검색 방식(BM25·Dense 등)에 의존하지 않는 기준인가?</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- 5 -->
+    <section id="phase1">
+      <div class="sec-head"><div class="sec-num">05</div><h2>Phase 1 · 스펙 판정 (시험 전)</h2></div>
+      <div class="plain"><span class="p-mark">쉽게</span><p>학생을 채점하기 <strong>전에, 시험 문제와 정답 기준이 제대로 됐는지 먼저 감수</strong>하는 단계예요. 기준이 틀리면 이후 채점이 다 헛수고니까요. 믿음을 위해 <strong>똑같은 검사를 두 번 따로</strong> 돌려서, 둘 다 통과할 때만 그 문제를 시험에 씁니다.</p></div>
+      <p>여기서 "스펙(Spec)"은 <strong>한 문제의 성공 기준</strong>을 뜻한다. 에이전트를 돌리기 전에 이 성공 기준 자체를 감사한다. 같은 스펙을 <strong>독립적으로 두 번</strong> 판정하고, 두 번 다 accept이며 다섯 체크의 결과(예/아니오 조합)까지 완전히 같을 때만 승격한다.</p>
+      <div class="diagram">
+        <div class="phase-label"><span class="phase-tag">Phase 1</span> two-pass consensus · <code>spec_adjudicator.py</code></div>
+        <div class="flow">
+          <div class="stack">
+            <div class="node"><span class="n-role">입력</span><span class="n-name">Problem</span><span class="n-desc">문제</span></div>
+            <div class="node"><span class="n-role">입력</span><span class="n-name">후보 Spec</span><span class="n-desc">성공 기준</span></div>
+            <div class="node"><span class="n-role">입력</span><span class="n-name">근거 자료</span><span class="n-desc">known-relevant</span></div>
+          </div>
+          <div class="arrow">→</div>
+          <div class="stack">
+            <div class="node judge"><span class="n-role">Gemini</span><span class="n-name">1차 검사</span></div>
+            <div class="node judge"><span class="n-role">Gemini</span><span class="n-name">2차 검사</span></div>
+          </div>
+          <div class="arrow">→</div>
+          <div class="node policy"><span class="n-role">코드 비교</span><span class="n-name">두 결과 대조</span></div>
+          <div class="arrow">→</div>
+          <div class="stack">
+            <div class="node"><span class="n-name"><span class="badge accept">accepted</span></span><span class="n-desc">둘 다 통과 + 결과 일치</span></div>
+            <div class="node"><span class="n-name"><span class="badge reject">rejected</span></span><span class="n-desc">둘 다 탈락</span></div>
+            <div class="node"><span class="n-name"><span class="badge indet">needs_review</span></span><span class="n-desc">엇갈림 / 애매</span></div>
+          </div>
+        </div>
+      </div>
+      <h3>검사를 시작하기도 전에 거르는 조건</h3>
+      <p>다음 중 하나라도 걸리면 아예 채점관을 부르지 않고 즉시 반려한다.</p>
+      <ul class="clean">
+        <li><strong>문제-기준 짝 불일치</strong> — 문제와 성공 기준의 id가 다르면 잘못 묶인 것이므로 거부.</li>
+        <li><strong>"답할 수 있는 문제"만 허용</strong> — "모른다고 답해야 하는 문제"는 이 단계에서 다루지 않는다. <em>근거가 비어 있다는 사실만으로는 "근거가 없다"를 증명할 수 없기 때문</em>이다. (이런 문제는 별도의 전수 조사 절차가 필요하다.)</li>
+        <li><strong>근거 최소 1개 필요</strong> — 답할 수 있는 문제인데 뒷받침 근거가 하나도 없으면 거부.</li>
+        <li><strong>엉뚱한 사실 지목 차단</strong> — 채점관이 문제에 없는 사실 항목을 지목하면(환각) 거부.</li>
+      </ul>
+      <div class="note"><div class="n-mark">왜 두 번</div><p>한 번의 판정은 우연히 통과할 수 있다. 두 번의 독립 검사가 모두 accept하고, 다섯 체크의 예/아니오 조합까지 <strong>완전히 같을 때만</strong> 승격한다 → 신뢰도 확보. 실제 결과: 통과 111 · 탈락 10 · <b>엇갈림 0건</b>.</p></div>
+    </section>
+
+    <!-- 6 -->
+    <section id="phase2">
+      <div class="sec-head"><div class="sec-num">06</div><h2>Phase 2 · 답 채점 (시험 후)</h2></div>
+      <div class="plain"><span class="p-mark">쉽게</span><p>에이전트가 답을 낸 <strong>뒤에, 그 답을 채점</strong>하는 단계예요. 단 <strong>학생이 실제로 찾아온 자료만</strong> 가지고 채점하고, 정답지는 채점관에게 안 줘요(베끼기 방지). 그리고 채점관은 사실 판단까지만 하고 — <strong>점수는 안 매기고 멈춰요.</strong></p></div>
+      <p>에이전트가 답을 낸 뒤, 그 답을 <strong>실제로 가져온 근거</strong>에 대해서만 채점한다. 채점관은 앞서 본 <code>TaskJudgment</code> 서식(사실·주장·행동·관련성)만 채우고 그 지점에서 멈춘다. 이후 검증과 점수 계산은 코드가 이어받는다.</p>
+      <div class="diagram">
+        <div class="phase-label"><span class="phase-tag">Phase 2</span> 원자 판정 → 코드 검증 → 점수 · <code>task_grader.py</code></div>
+        <div class="flow">
+          <div class="stack">
+            <div class="node"><span class="n-role">입력</span><span class="n-name">Problem</span><span class="n-desc">문제</span></div>
+            <div class="node"><span class="n-role">입력</span><span class="n-name">Spec</span><span class="n-desc">통과된 기준</span></div>
+            <div class="node"><span class="n-role">입력</span><span class="n-name">Answer</span><span class="n-desc">학생 답</span></div>
+            <div class="node"><span class="n-role">입력</span><span class="n-name">가져온 근거</span></div>
+          </div>
+          <div class="arrow">→</div>
+          <div class="node judge"><span class="n-role">Gemini</span><span class="n-name">사실 판단표</span><span class="n-desc">사실·주장·행동·관련성</span></div>
+        </div>
+        <div class="barrier"><span>여기서 채점관 정지 — 점수는 만들지 않음</span></div>
+        <div class="flow">
+          <div class="node policy"><span class="n-role">코드 검증</span><span class="n-name">판단표 검사</span><span class="n-desc">항목 누락·근거 날조 차단</span></div>
+          <div class="arrow">→</div>
+          <div class="node policy"><span class="n-role">정책 코드</span><span class="n-name">점수 집계</span><span class="n-desc">coverage·groundedness</span></div>
+          <div class="arrow">→</div>
+          <div class="node"><span class="n-role">출력</span><span class="n-name">TrialGrade</span><span class="n-desc">점수 + 검색 진단 + 비용</span></div>
+        </div>
+      </div>
+      <h3>채점 결과를 받아들이기 전 코드가 확인하는 것</h3>
+      <ul class="clean">
+        <li><strong>사실 항목 빠짐없이</strong> — 채점관이 채운 사실 항목이 성공 기준의 필요한 사실과 정확히 일치해야 한다. 누락·초과는 거부.</li>
+        <li><strong>없는 근거 인용 차단</strong> — 채점관이 인용한 근거가 학생이 실제로 가져온 자료 안에 없으면 거부. 채점관이 근거를 지어낼 수 없다.</li>
+        <li><strong>버전 일치</strong> — 채점에 쓴 모델·프롬프트·서식 버전이 기록과 다르면 채점 거부.</li>
+        <li><strong>학생이 지어낸 근거는 실패가 아님</strong> — 학생(에이전트)이 없는 자료를 지어냈다면, 그건 채점관의 오류가 아니라 <strong>진단 신호</strong>로 따로 표시된다.</li>
+      </ul>
+    </section>
+
+    <!-- 7 -->
+    <section id="policy">
+      <div class="sec-head"><div class="sec-num">07</div><h2>결정론적 정책 — 점수의 진짜 정의</h2></div>
+      <div class="plain"><span class="p-mark">쉽게</span><p>"결정론적"은 <strong>같은 입력이면 언제나 똑같은 결과가 나온다</strong>는 뜻이에요 — 그날그날 기분이나 해석에 따라 안 바뀌죠. 최종 합격/불합격은 채점관 AI가 아니라, <strong>사람이 미리 짜둔 계산 규칙</strong>이 정합니다. 그래서 채점관의 말투를 바꿔도 점수 기준은 절대 안 흔들려요.</p></div>
+      <p>이것이 설계의 핵심축이다. LLM이 아니라 정책 코드가 최종 <code>task_success</code>를 계산한다. 규칙이 코드로 고정돼 있으므로, 프롬프트를 어떻게 바꿔도 점수의 의미가 몰래 달라지지 않는다.</p>
+      <div class="formula">
+        <div class="f-title">"답할 수 있는 문제"의 합격 조건 — 아래를 전부 만족해야 성공</div>
+        <div class="cond"><span class="c-expr">행동이 올바름</span><span class="c-and">그리고</span> <span>답할 상황에 제대로 답했다</span></div>
+        <div class="cond"><span class="c-expr">필요한 사실 100% 전달</span><span class="c-and">그리고</span> <span>부분 전달은 0.5점, 하나라도 빠지면 탈락</span></div>
+        <div class="cond"><span class="c-expr">질문 관련성 ≥ 0.5</span><span class="c-and">그리고</span> <span>엉뚱한 답이 아니다</span></div>
+        <div class="cond"><span class="c-expr">근거 뒷받침 ≥ 90%</span><span class="c-and">그리고</span> <span>지어낸 말(환각)이 거의 없다</span></div>
+        <div class="cond"><span class="c-expr">판단 불능이 아님</span><span class="c-and"></span> <span>채점관이 "모르겠다"로 멈추지 않았다</span></div>
+      </div>
+      <p>각 지표를 계산하는 방식:</p>
+      <ul class="clean">
+        <li><strong>사실 전달률(coverage)</strong> — 필요한 사실마다 <code>담김 1점 · 부분 0.5점 · 안 담김/반박 0점</code>을 매긴 평균.</li>
+        <li><strong>근거 뒷받침률(groundedness)</strong> — 답 속 주장 중 근거로 지지된 비율. 주장이 하나도 없으면 계산 안 함(빈 값).</li>
+        <li><strong>"모른다고 답해야 하는 문제"는 규칙이 다르다</strong> — 이 경우엔 지어낸 주장이 하나라도 있으면 실패다. 즉 <em>사실을 만들어내지 않고 솔직히 모른다고 하는 것</em>이 성공이다.</li>
+      </ul>
+      <h3>덤으로 나오는 검색 품질 진단</h3>
+      <p>정책은 합격 여부와 <strong>별개로</strong>, 학생이 검색을 얼마나 잘했는지 진단도 낸다: 필요한 근거를 얼마나 찾았나(recall), 가져온 것 중 쓸모 있는 비율(precision), 순위 품질(nDCG) 등. 이건 성공 점수가 아니라 <strong>왜 성공/실패했는지 원인</strong>을 설명하는 참고 자료다.</p>
+    </section>
+
+    <!-- 8 -->
+    <section id="invariants">
+      <div class="sec-head"><div class="sec-num">08</div><h2>격리 불변식 — 오염을 막는 벽</h2></div>
+      <div class="plain"><span class="p-mark">쉽게</span><p>"불변식"은 <strong>어떤 상황에서도 항상 지켜지도록 코드가 강제하는 규칙</strong>이에요. 사람이 "그러지 말자"고 약속하는 게 아니라, 어기면 프로그램이 아예 거부하게 막아둔 거죠. 규칙 하나하나가 <strong>커닝·조작 경로 하나씩</strong>을 봉쇄해요.</p></div>
+      <p>이 시스템의 신뢰성은 아래 규칙들이 사람의 선의가 아니라 <strong>코드 수준에서 강제</strong>된다는 데서 나온다. 왼쪽이 규칙, 가운데가 그 규칙이 막는 부정 경로다.</p>
+      <div class="table-scroll">
+        <table>
+          <thead><tr><th>강제되는 규칙</th><th>막는 부정행위</th><th>위치</th></tr></thead>
+          <tbody>
+            <tr><td>채점관 설정은 학생 설정을 물려받지 않음</td><td>채점관이 학생과 같은 조건에 물들기</td><td class="mono">config.py</td></tr>
+            <tr><td>학생에겐 발화·맥락만 전달</td><td>정답·기준 누출 (커닝)</td><td class="mono">controlled_runner</td></tr>
+            <tr><td>정답지를 채점관에게 안 줌</td><td>정답 베끼기 채점</td><td class="mono">task_grader.py</td></tr>
+            <tr><td>채점관은 최종 점수를 못 냄</td><td>프롬프트로 점수 조작</td><td class="mono">contracts / policy</td></tr>
+            <tr><td>인용은 학생이 가져온 자료로 제한</td><td>없는 근거 날조</td><td class="mono">task_grader.py</td></tr>
+            <tr><td>근거 자료는 지문(해시)으로 검증</td><td>변조된 자료로 채점</td><td class="mono">world_evidence.py</td></tr>
+            <tr><td>서버 오류는 채점 실패로만 표시</td><td>인프라 오류를 학생 실패로 오계산</td><td class="mono">gemini_client.py</td></tr>
+            <tr><td>AI 판정은 "기계 판정"으로 표기</td><td>기계 판정을 사람 검수로 위장</td><td class="mono">materialize.py</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- 9 -->
+    <section id="provenance">
+      <div class="sec-head"><div class="sec-num">09</div><h2>불변성 · 체크포인트 · 재현성</h2></div>
+      <div class="plain"><span class="p-mark">쉽게</span><p>원본 데이터는 <strong>절대 덮어쓰지 않고</strong> 항상 새 사본을 만들어요. 그리고 각 데이터에 <strong>지문(fingerprint)</strong>을 남겨서 나중에 "이게 진짜 그 데이터가 맞는지" 확인할 수 있게 하죠. 작업이 중간에 끊겨도 <strong>이어서</strong> 할 수 있고요.</p></div>
+      <ul class="clean">
+        <li><strong>원본 불변</strong> — 판정 결과를 만들 때 원본을 절대 고치지 않고 새 스냅샷을 생성한다. 출력 폴더가 이미 있으면 거부한다(실수로 덮어쓰기 방지).</li>
+        <li><strong>전부 쓰고 나서 확정</strong> — 임시 폴더에 전체를 다 쓴 뒤에야 정식 이름으로 바꾼다. 중간에 실패하면 <code>.failed-</code> 표시로 남겨 흔적을 보존한다.</li>
+        <li><strong>체크포인트로 이어하기</strong> — 항목마다 진행 상황을 기록한다. 각 기록에 원본의 지문을 새겨서, <em>다른 원본</em>의 체크포인트를 잘못 재사용하려 하면 거부한다.</li>
+        <li><strong>지문(해시) 추적</strong> — 기준·응답·결과 데이터 모두 SHA-256 지문을 남긴다. 같은 지문 = 같은 데이터임이 수학적으로 보장된다.</li>
+        <li><strong>사본도 아직 "정식 아님"</strong> — 기계 합의는 사람 검수도, 출시 승인도 아니므로 이 사본은 출시용이 아니라 <strong>채점기 개발용</strong>이다.</li>
+      </ul>
+    </section>
+
+    <!-- 10 -->
+    <section id="ops">
+      <div class="sec-head"><div class="sec-num">10</div><h2>운영과 실행</h2></div>
+      <div class="plain"><span class="p-mark">쉽게</span><p>실제로 돌릴 땐 먼저 <strong>연결 테스트(preflight)</strong> 한 번, 그다음 <strong>본 판정(adjudicate)</strong> 순서예요. 돈이 드는 실제 호출이라, 실수로 못 돌리게 <strong>확인 스위치</strong>를 반드시 켜야 실행돼요.</p></div>
+      <p>채점관 설정은 <code>EVAL_JUDGE_*</code> 환경변수로만 조정되고 에이전트 설정과 분리된다. 모델은 <code>gemini-3.7-flash</code>로 고정, 실행에는 Google Cloud 프로젝트와 인증(ADC)이 필요하다.</p>
+      <pre><span class="cm"># 1) 연결 확인 — 채점관에게 딱 1번 물어보기</span>
+python -m launchpilot.evaluation.judging.cli <span class="fn">preflight</span>
+
+<span class="cm"># 2) 본 판정 — 실제 비용 발생, 확인 스위치 필수</span>
+python -m launchpilot.evaluation.judging.cli <span class="fn">adjudicate</span> \
+  --dataset-root evals/datasets/marketing-ops-task-v1 \
+  --output-root  evals/datasets/marketing-ops-task-2026-08-judge-ready \
+  --rubric       evals/rubrics/spec-adjudication-v1.yaml \
+  --checkpoint   evals/runs/spec-adjudication-2026-08.checkpoint.jsonl \
+  --confirm-live-calls   <span class="cm"># ← 이 스위치가 없으면 실행 거부</span></pre>
+      <ul class="clean">
+        <li><strong>비용 안전장치</strong> — <code>--confirm-live-calls</code> 없이는 실행을 거부한다(예상 호출 수 = 검사할 문제 × 2회).</li>
+        <li><strong>이어하기</strong> — 중간에 멈춰도 체크포인트부터 이어서 판정한다.</li>
+        <li><strong>재시도</strong> — 일시적 오류(408·429)와 서버·형식 오류만 잠깐 기다렸다 다시 시도한다(기본 2회). 그 외 오류는 즉시 실패 처리.</li>
+        <li><strong>비용 분리 기록</strong> — 채점관이 쓴 시간·토큰·비용은 학생 시스템의 것과 별도 칸에 기록된다.</li>
+      </ul>
+    </section>
+
+    <!-- 11 -->
+    <section id="status">
+      <div class="sec-head"><div class="sec-num">11</div><h2>현재 지위와 다음 게이트</h2></div>
+      <div class="plain"><span class="p-mark">쉽게</span><p>지금은 <strong>"시스템이 잘 돌아가는지 골격을 확인한" 단계</strong>이지, 정식 성적표를 낼 완성 단계가 아니에요. 실제 고객 사례가 아직 없고, 문제들도 전부 "검토 필요" 상태라서요.</p></div>
+      <p>현재의 판정 사본은 합성 데이터로 <strong>연결·정합성만 검증</strong>한 결과다. 사람 선호도 보정(calibration)이 아니므로 출시 벤치마크가 아니다.</p>
+      <div class="table-scroll">
+        <table>
+          <thead><tr><th>지표</th><th>현재 값</th></tr></thead>
+          <tbody>
+            <tr><td>연결 테스트(preflight)</td><td><span class="badge accept">성공</span> gemini-3.7-flash / medium</td></tr>
+            <tr><td>시험 전 기준 검사</td><td class="mono">242회 성공 · 재시도 7</td></tr>
+            <tr><td>두 번 검사 일치도</td><td class="mono">통과 111 · 탈락 10 · 엇갈림 0</td></tr>
+            <tr><td>미판정 (근거 부족)</td><td class="mono">29건</td></tr>
+            <tr><td>채점 비용</td><td class="mono">≈ $0.82 (2026-08-30 단가)</td></tr>
+            <tr><td>정식 출시 준비</td><td><span class="badge reject">아직 아님</span> 150건 전부 검토 필요 · 실제 사례 0</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <h3>다음에 할 일 (순서대로)</h3>
+      <ul class="clean">
+        <li><strong>탈락 10건 다시 쓰기</strong> — 필요한 사실과 양쪽 근거를 보강한다.</li>
+        <li><strong>근거 부족 29건 검증</strong> — 전수 조사 절차로 "정말 근거가 없는지" 확인한다.</li>
+        <li><strong>실제 사례 모으기</strong> — 비식별 처리한 실제 고객 사례를 수집해 분포를 본다.</li>
+        <li><strong>누출 방지 분리</strong> — 학생이 미리 못 보게 별도의 "봉인된 시험지(Holdout)"를 만든다.</li>
+        <li><strong>채점관 자체 검증</strong> — 사람 검수가 어려우므로, 일관성 테스트로 채점관이 믿을 만한지 따로 검증한다.</li>
+      </ul>
+    </section>
+  </main>
+</div>
+
+<footer class="doc-foot">
+  <div class="wrap">LaunchPilot Evaluation · Gemini Eval Judge 설계서 · 소스: <a href="#">services/launchpilot-api/evals/JUDGE.md · evals/README.md · src/launchpilot/evaluation/judging/</a></div>
+</footer>
+</body>
+</html>
