@@ -14,6 +14,8 @@ docs/
 ├── architecture/                       # 🏛️ 시스템 설계 및 아키텍처
 │   ├── system-architecture.md          # • LangGraph 4계층 순환 인지 토폴로지 (C3 다이어그램)
 │   ├── evaluation-framework.md         # • Problem 중심 Eval 데이터·실행 아키텍처
+│   ├── multitenancy-design.html        # 🔐 멀티테넌시 6계층 상세 설계 (To-Be)
+│   ├── memory-langgraph-design.html    # 🧠 대화 메모리 · LangGraph 심화 설계 (To-Be)
 │   └── adr/                            # • 아키텍처 결정서 (Architecture Decision Records)
 │       ├── 0001-retrieval-storage-strategy.md
 │       ├── 0002-source-of-truth-database.md
@@ -43,6 +45,10 @@ docs/
 | **📘 과거 실험 기록** | [docs/reports/master-engineering-report.md](reports/master-engineering-report.md) | 데이터셋 진화와 ablation 기록. 품질 주장은 Eval 감사의 유효 범위 안에서 해석 |
 | **🏛️ 시스템 아키텍처** | [docs/architecture/system-architecture.md](architecture/system-architecture.md) | 전처리 ➔ 본체 에이전트 ➔ 도구 ➔ 인-루프 리랭커 순환 토폴로지 |
 | **🎯 Evaluation architecture** | [docs/architecture/evaluation-framework.md](architecture/evaluation-framework.md) | Problem/Spec/Trial 분리, 관계별 평가, paired architecture experiment |
+| **🔐 멀티테넌시 설계** | [docs/architecture/multitenancy-design.html](architecture/multitenancy-design.html) | `workspace_id` 배턴을 6계층에 관통시키는 테넌트 격리 To-Be 설계 (JWT·RLS·감사) |
+| **🧠 메모리 · LangGraph** | [docs/architecture/memory-langgraph-design.html](architecture/memory-langgraph-design.html) | 체크포인터·요약(compaction)·RLS 격리로 "이어지는 대화"를 만드는 심화 설계 |
+
+> 위 두 설계 문서는 다이어그램·테마가 포함된 **스탠드얼론 HTML**입니다. GitHub는 HTML을 인라인 렌더링하지 않으니, 파일을 내려받아 브라우저로 열거나 `htmlpreview.github.io` 로 보세요.
 | **🧪 데이터셋 진화** | [docs/reports/dataset-evolution.md](reports/dataset-evolution.md) | 30개 캠페인, 1,050개 코퍼스, 150건 무편향 블라인드 질의 설계 |
 | **📝 아키텍처 결정서** | [docs/architecture/adr/](architecture/adr/) | ADR 0001 ~ ADR 0007 핵심 설계 의사결정 기록 |
 

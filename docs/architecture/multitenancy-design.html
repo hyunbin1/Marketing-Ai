@@ -1,0 +1,679 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>멀티테넌시 설계 문서</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+  :root{
+    --ground:#eef1f5; --surface:#ffffff; --surface-2:#f6f8fb;
+    --ink:#141b28; --ink-soft:#43505f; --ink-faint:#7c8798;
+    --line:#d8dee7; --line-strong:#c2cad6;
+    --blueprint:#2b4a8c; --blueprint-soft:#e6ecf7;
+    --warn:#a35a1a; --warn-bg:#fbeede; --warn-line:#e9c79b;
+    --good:#0d6e63; --good-bg:#dcf1ee; --good-line:#9cd3ca;
+    --shadow:0 1px 2px rgba(20,27,40,.05),0 8px 24px -12px rgba(20,27,40,.18);
+  }
+  @media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+    --ground:#0c1119; --surface:#141b28; --surface-2:#0f1522;
+    --ink:#e7ecf4; --ink-soft:#aab6c6; --ink-faint:#6f7c8f;
+    --line:#26303f; --line-strong:#33404f;
+    --blueprint:#7ea0e0; --blueprint-soft:#1a2436;
+    --warn:#e0a35f; --warn-bg:#2c2013; --warn-line:#5a4224;
+    --good:#5ec8b8; --good-bg:#10261f; --good-line:#2c4f45;
+    --shadow:0 1px 2px rgba(0,0,0,.3),0 10px 28px -14px rgba(0,0,0,.6);
+  }}
+  :root[data-theme="dark"]{
+    --ground:#0c1119; --surface:#141b28; --surface-2:#0f1522;
+    --ink:#e7ecf4; --ink-soft:#aab6c6; --ink-faint:#6f7c8f;
+    --line:#26303f; --line-strong:#33404f;
+    --blueprint:#7ea0e0; --blueprint-soft:#1a2436;
+    --warn:#e0a35f; --warn-bg:#2c2013; --warn-line:#5a4224;
+    --good:#5ec8b8; --good-bg:#10261f; --good-line:#2c4f45;
+    --shadow:0 1px 2px rgba(0,0,0,.3),0 10px 28px -14px rgba(0,0,0,.6);
+  }
+
+  *{box-sizing:border-box}
+  body{background:var(--ground);color:var(--ink);
+    font-family:"IBM Plex Sans",system-ui,sans-serif;line-height:1.68;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:820px;margin:0 auto;padding:48px 24px 90px}
+  code{font-family:"IBM Plex Mono",monospace;font-size:.85em;background:var(--surface-2);
+    border:1px solid var(--line);border-radius:5px;padding:1px 5px;color:var(--ink);white-space:nowrap}
+
+  .eyebrow{font-family:"IBM Plex Mono",monospace;font-size:12px;letter-spacing:.14em;
+    text-transform:uppercase;color:var(--blueprint);font-weight:600}
+  h1{font-size:clamp(27px,4.4vw,40px);line-height:1.1;margin:.35em 0 .3em;
+    letter-spacing:-.022em;font-weight:700;text-wrap:balance}
+  .lede{color:var(--ink-soft);max-width:60ch;font-size:16.5px;margin:0}
+  .meta{margin-top:16px;font-family:"IBM Plex Mono",monospace;font-size:12px;color:var(--ink-faint);
+    display:flex;flex-wrap:wrap;gap:6px 18px}
+
+  /* intro */
+  .intro{margin:34px 0 0}
+  .intro h2,.gloss h2,.closing h2{font-size:13px;font-family:"IBM Plex Mono",monospace;letter-spacing:.1em;
+    text-transform:uppercase;color:var(--blueprint);font-weight:600;margin:0 0 12px;display:flex;align-items:center;gap:9px}
+  .intro h2::before,.gloss h2::before,.closing h2::before{content:"";width:8px;height:8px;border-radius:2px;background:var(--blueprint)}
+  .intro p{font-size:15.5px;color:var(--ink-soft);margin:0 0 14px;max-width:64ch}
+  .intro p b{color:var(--ink);font-weight:600}
+  .thesis{margin:22px 0 8px;background:var(--blueprint-soft);border:1px solid var(--line-strong);
+    border-left:3px solid var(--blueprint);border-radius:10px;padding:16px 18px;font-size:15.5px;color:var(--ink)}
+  .thesis b{color:var(--blueprint);font-weight:700}
+
+  /* figures */
+  figure{margin:26px 0 6px;background:var(--surface);border:1px solid var(--line);
+    border-radius:14px;padding:22px 20px 12px;box-shadow:var(--shadow);overflow-x:auto}
+  figure svg{display:block;max-width:100%;height:auto;min-width:600px;margin:0 auto;color:var(--ink)}
+  figcaption{font-size:13px;color:var(--ink-soft);margin-top:14px;text-align:center;text-wrap:balance;max-width:70ch;margin-left:auto;margin-right:auto}
+  figcaption b{color:var(--ink)}
+  svg .node{fill:var(--surface-2);stroke:var(--line-strong);stroke-width:1.5}
+  svg .acc{fill:var(--blueprint-soft);stroke:var(--blueprint);stroke-width:2}
+  svg .db{fill:var(--good-bg);stroke:var(--good);stroke-width:2}
+  svg .warnb{fill:var(--warn-bg);stroke:var(--warn-line);stroke-width:1.5}
+  svg .lab{fill:var(--ink);font-family:"IBM Plex Sans",sans-serif;font-size:13px;font-weight:600}
+  svg .num{fill:var(--blueprint);font-family:"IBM Plex Mono",monospace;font-size:13px;font-weight:600}
+  svg .mono{fill:var(--ink-soft);font-family:"IBM Plex Mono",monospace;font-size:10.5px}
+  svg .edge{stroke:var(--ink-faint);stroke-width:1.6;fill:none}
+  svg .edgelab{fill:var(--ink-faint);font-family:"IBM Plex Mono",monospace;font-size:10px}
+  svg .baton{stroke:var(--blueprint);stroke-width:2.4;fill:none}
+  svg .conn{stroke:var(--line-strong);stroke-width:1.3;fill:none;stroke-dasharray:3 3}
+  svg .pill{fill:var(--blueprint-soft);stroke:var(--blueprint);stroke-width:1.2}
+  svg .pilltx{fill:var(--blueprint);font-family:"IBM Plex Mono",monospace;font-size:10px;font-weight:600}
+  svg .warnstroke{stroke:var(--warn);stroke-width:1.8;fill:none;stroke-dasharray:5 4}
+  svg .ok{fill:var(--good);font-family:"IBM Plex Sans";font-size:13px;font-weight:700}
+  svg .no{fill:var(--warn);font-family:"IBM Plex Sans";font-size:13px;font-weight:700}
+
+  /* glossary */
+  .gloss{margin:34px 0 0;background:var(--surface);border:1px solid var(--line);
+    border-radius:14px;padding:20px 22px;box-shadow:var(--shadow)}
+  .gg{display:grid;grid-template-columns:1fr 1fr;gap:11px 24px}
+  .term dt{font-family:"IBM Plex Mono",monospace;font-size:13px;font-weight:600;color:var(--blueprint)}
+  .term dd{margin:1px 0 0;font-size:13px;color:var(--ink-soft)}
+  .term dd b{color:var(--ink);font-weight:600}
+
+  /* layer section */
+  .layer{margin-top:30px;background:var(--surface);border:1px solid var(--line);
+    border-radius:16px;box-shadow:var(--shadow);overflow:hidden}
+  .layer > header{padding:20px 24px 18px;border-bottom:1px solid var(--line);
+    display:flex;align-items:baseline;gap:12px;background:var(--surface-2)}
+  .layer .lnum{font-family:"IBM Plex Mono",monospace;font-size:22px;font-weight:600;color:var(--blueprint);line-height:1}
+  .layer h2{margin:0;font-size:20px;font-weight:700;letter-spacing:-.01em}
+  .body{padding:20px 24px 24px;display:flex;flex-direction:column;gap:22px}
+
+  .purpose{font-size:14.5px;color:var(--ink-soft);margin:0;padding:12px 15px;
+    background:var(--surface-2);border:1px solid var(--line);border-radius:10px}
+  .purpose b{color:var(--ink);font-weight:600}
+  .purpose .plead{font-family:"IBM Plex Mono",monospace;font-size:10.5px;letter-spacing:.08em;
+    text-transform:uppercase;color:var(--blueprint);font-weight:600;display:block;margin-bottom:4px}
+  .cast{margin:12px 0 0;font-size:13px;line-height:1.62;color:var(--ink-soft);padding:12px 15px;
+    border:1px dashed var(--line-strong);border-radius:10px}
+  .cast .cl{font-family:"IBM Plex Mono",monospace;font-size:10.5px;letter-spacing:.08em;
+    text-transform:uppercase;color:var(--blueprint);font-weight:600;margin-right:8px}
+  .cast b{color:var(--ink);font-weight:600}
+
+  .sub{display:flex;flex-direction:column;gap:12px}
+  .subhead{font-family:"IBM Plex Mono",monospace;font-size:11px;letter-spacing:.1em;
+    text-transform:uppercase;font-weight:600;color:var(--ink-faint);display:flex;align-items:center;gap:8px}
+  .subhead .mk{font-weight:700;color:var(--blueprint)}
+
+  .cmps{display:flex;flex-direction:column;gap:13px}
+  .cmp{display:flex;flex-direction:column;gap:3px}
+  .cmp .cn{font-family:"IBM Plex Mono",monospace;font-size:13px;font-weight:600;color:var(--ink);
+    display:flex;align-items:center;gap:7px}
+  .cmp .cn .new{font-size:9.5px;color:var(--good);border:1px solid var(--good-line);
+    background:var(--good-bg);border-radius:4px;padding:0 4px;font-weight:600}
+  .cmp p{margin:0;font-size:13.5px;color:var(--ink-soft)}
+  .cmp p b{color:var(--ink);font-weight:600}
+
+  ol.seq{margin:0;padding:0;list-style:none;counter-reset:s;display:flex;flex-direction:column;gap:0}
+  ol.seq li{counter-increment:s;position:relative;padding:9px 0 11px 40px;font-size:13.5px;color:var(--ink-soft);
+    border-left:2px solid var(--line);margin-left:12px}
+  ol.seq li::before{content:counter(s);position:absolute;left:-13px;top:8px;width:24px;height:24px;
+    background:var(--surface);border:1.5px solid var(--blueprint);color:var(--blueprint);border-radius:50%;
+    font-family:"IBM Plex Mono",monospace;font-size:11px;font-weight:600;display:flex;align-items:center;justify-content:center}
+  ol.seq li:last-child{border-left-color:transparent}
+  ol.seq li b{color:var(--ink);font-weight:600}
+  ol.seq li .who{font-family:"IBM Plex Mono",monospace;font-size:12px;color:var(--blueprint);font-weight:600}
+
+  ul.rules{margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:11px}
+  ul.rules li{position:relative;padding-left:24px;font-size:13.5px;color:var(--ink-soft)}
+  ul.rules li::before{content:"";position:absolute;left:3px;top:8px;width:8px;height:8px;border-radius:2px;
+    background:var(--good);transform:rotate(45deg)}
+  ul.rules li.warn::before{background:var(--warn)}
+  ul.rules li b{color:var(--ink);font-weight:600}
+  ul.rules li .tag{font-family:"IBM Plex Mono",monospace;font-size:10px;font-weight:600;
+    padding:1px 6px;border-radius:20px;margin-right:7px;white-space:nowrap}
+  ul.rules li.warn .tag{background:var(--warn-bg);color:var(--warn);border:1px solid var(--warn-line)}
+  ul.rules li.rule .tag{background:var(--blueprint-soft);color:var(--blueprint);border:1px solid var(--line-strong)}
+
+  .closing{margin-top:38px;background:var(--surface);border:1px solid var(--line);border-radius:14px;
+    padding:22px 24px;box-shadow:var(--shadow)}
+  .closing p{font-size:15px;color:var(--ink-soft);margin:0}
+  .closing p b{color:var(--ink)}
+  .closing .big{font-size:16px;color:var(--ink);margin-top:12px}
+  .closing .big b{color:var(--blueprint)}
+
+  @media (max-width:640px){.gg{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="eyebrow">LaunchPilot · 기술 설계 문서 (TDD)</div>
+    <h1>여러 회사가 한 서비스를 안전하게 나눠 쓰는 법</h1>
+    <p class="lede">멀티테넌시 격리와 대화 메모리를, 개발자의 조심성이 아니라 시스템 구조로 보장하기 위한 6계층 설계.</p>
+    <div class="meta"><span>대상: To-Be 구현안</span><span>스택: FastAPI · PostgreSQL 17 · Elasticsearch · LangGraph</span></div>
+  </header>
+
+  <!-- INTRO -->
+  <section class="intro">
+    <h2>이 문서가 하려는 이야기</h2>
+    <p>지금 LaunchPilot은 <b>한 사람이 쓰는 프로토타입</b>이다. 하지만 곧 서로 다른 회사 — A사·B사·C사 — 의 마케터들이 같은 서비스에 각자 로그인해 <b>자기 회사의 광고 데이터만</b>을 묻게 된다. 이때 단 한 번이라도 A사의 질문이나 데이터가 B사 화면에 새어 나가면, 그것은 사소한 버그가 아니라 <b>신뢰의 붕괴이자 계약 위반</b>이다. 그래서 이 서비스에서 "격리(isolation)"는 나중에 붙이는 기능이 아니라 처음부터 깔려 있어야 하는 전제다.</p>
+    <p>격리를 지키는 길은 두 가지다. 하나는 "개발자가 모든 데이터 조회에 <code>회사 조건</code>을 <b>잊지 않고</b> 붙인다"는 조심성에 기대는 것이고, 다른 하나는 "개발자가 실수로 빠뜨려도 <b>시스템이 구조적으로 못 새게</b> 막는" 것이다. 사람은 언젠가 실수하므로, 이 문서는 후자를 택한다. 그리고 그 중심에는 <code>workspace_id</code> — "이 요청은 어느 회사의 것인가"를 가리키는 <b>단 하나의 테넌트 표식</b> — 이 있다.</p>
+    <p>이 설계는 사용자의 요청이 지나는 길을 <b>6개 계층</b>으로 나눈다. 각 계층은 앞 계층에게서 <code>workspace_id</code>를 넘겨받아, 자기 자리에서 그 값으로 문을 잠그고, 다음 계층에게 그대로 건넨다 — 마치 <b>릴레이 경주의 배턴</b>처럼. 각 계층 설명은 언제나 <b>"이 계층은 왜 있는가 → 누가 무슨 일을 하는가 → 어떤 순서로 협력하는가 → 무엇을 조심해야 하는가"</b> 순서로 읽으면 된다.</p>
+    <div class="thesis">이 설계 전체의 한 문장 요약: <b>workspace_id 하나를 릴레이 배턴처럼, 요청의 처음부터 끝까지 놓치지 않고 전달한다.</b></div>
+  </section>
+
+  <!-- HERO: relay -->
+  <figure>
+    <svg viewBox="0 0 1000 210" role="img" aria-label="workspace_id 하나가 인증 계층에서 만들어져 게이트·RLS·검색·메모리·감사까지 여섯 계층을 배턴처럼 통과하며, 각 계층이 그 값으로 자기 문을 잠근다">
+      <defs>
+        <marker id="ah" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto"><polygon points="0 0,8 3,0 6" fill="var(--blueprint)"/></marker>
+      </defs>
+      <!-- baton track -->
+      <text class="mono" x="500" y="24" text-anchor="middle" fill="var(--blueprint)" style="font-size:12px;font-weight:600">workspace_id — 하나의 값이 처음부터 끝까지</text>
+      <line class="baton" x1="40" y1="44" x2="960" y2="44" marker-end="url(#ah)"/>
+      <g>
+        <rect class="pill" x="150" y="34" width="40" height="19" rx="9"/><text class="pilltx" x="170" y="47" text-anchor="middle">wsid</text>
+        <rect class="pill" x="310" y="34" width="40" height="19" rx="9"/><text class="pilltx" x="330" y="47" text-anchor="middle">wsid</text>
+        <rect class="pill" x="470" y="34" width="40" height="19" rx="9"/><text class="pilltx" x="490" y="47" text-anchor="middle">wsid</text>
+        <rect class="pill" x="630" y="34" width="40" height="19" rx="9"/><text class="pilltx" x="650" y="47" text-anchor="middle">wsid</text>
+        <rect class="pill" x="790" y="34" width="40" height="19" rx="9"/><text class="pilltx" x="810" y="47" text-anchor="middle">wsid</text>
+      </g>
+      <!-- stations -->
+      <g>
+        <line class="conn" x1="97" y1="44" x2="97" y2="92"/>
+        <rect class="node" x="24" y="92" width="146" height="84" rx="10"/>
+        <text class="num" x="38" y="116">①</text><text class="lab" x="62" y="116">인증</text>
+        <text class="mono" x="38" y="138">배턴을</text><text class="mono" x="38" y="153">발급한다</text>
+      </g>
+      <g>
+        <line class="conn" x1="257" y1="44" x2="257" y2="92"/>
+        <rect class="node" x="184" y="92" width="146" height="84" rx="10"/>
+        <text class="num" x="198" y="116">②</text><text class="lab" x="222" y="116">게이트</text>
+        <text class="mono" x="198" y="138">SET LOCAL로</text><text class="mono" x="198" y="153">DB에 심는다</text>
+      </g>
+      <g>
+        <line class="conn" x1="417" y1="44" x2="417" y2="92"/>
+        <rect class="node" x="344" y="92" width="146" height="84" rx="10"/>
+        <text class="num" x="358" y="116">③</text><text class="lab" x="382" y="116">RLS</text>
+        <text class="mono" x="358" y="138">행에 잠금을</text><text class="mono" x="358" y="153">건다</text>
+      </g>
+      <g>
+        <line class="conn" x1="577" y1="44" x2="577" y2="92"/>
+        <rect class="node" x="504" y="92" width="146" height="84" rx="10"/>
+        <text class="num" x="518" y="116">④</text><text class="lab" x="542" y="116">검색</text>
+        <text class="mono" x="518" y="138">필터로</text><text class="mono" x="518" y="153">가려낸다</text>
+      </g>
+      <g>
+        <line class="conn" x1="737" y1="44" x2="737" y2="92"/>
+        <rect class="node" x="664" y="92" width="146" height="84" rx="10"/>
+        <text class="num" x="678" y="116">⑤</text><text class="lab" x="702" y="116">메모리</text>
+        <text class="mono" x="678" y="138">배턴 안에서</text><text class="mono" x="678" y="153">저장한다</text>
+      </g>
+      <g>
+        <line class="conn" x1="897" y1="44" x2="897" y2="92"/>
+        <rect class="node" x="824" y="92" width="146" height="84" rx="10"/>
+        <text class="num" x="838" y="116">⑥</text><text class="lab" x="862" y="116">감사</text>
+        <text class="mono" x="838" y="138">기록에</text><text class="mono" x="838" y="153">남긴다</text>
+      </g>
+    </svg>
+    <figcaption><b>설계의 뼈대 — workspace_id 릴레이.</b> 테넌트 표식 하나가 인증에서 태어나(①) 게이트·DB·검색·메모리·감사까지(②~⑥) 끊기지 않고 전달되고, <b>각 계층은 넘겨받은 그 값으로 자기 문을 잠근다.</b> 배턴이 한 곳에서라도 떨어지면 그 계층이 격리의 구멍이 된다.</figcaption>
+  </figure>
+
+  <!-- GLOSSARY -->
+  <section class="gloss">
+    <h2>먼저, 자주 나오는 용어</h2>
+    <dl class="gg">
+      <div class="term"><dt>GUC</dt><dd>PostgreSQL의 설정 변수 칸. 여기 <code>app.workspace_id</code>를 적어둔다 — <b>DB 세션에 붙이는 포스트잇</b>.</dd></div>
+      <div class="term"><dt>SET LOCAL</dt><dd>그 포스트잇을 <b>이번 트랜잭션 동안만</b> 붙였다 떼는 명령. 끝나면 자동 소멸.</dd></div>
+      <div class="term"><dt>트랜잭션</dt><dd>"이 작업들은 한 묶음" 단위. 전부 성공(커밋) 아니면 전부 취소(롤백).</dd></div>
+      <div class="term"><dt>RLS</dt><dd>Row-Level Security. DB가 <b>행(줄) 단위</b>로 "자기 회사 줄만" 자동으로 걸러주는 기능.</dd></div>
+      <div class="term"><dt>BYPASSRLS</dt><dd>RLS를 <b>그냥 통과</b>하는 특권(슈퍼유저가 가짐). 앱은 이 특권 <b>없는</b> 계정으로 접속.</dd></div>
+      <div class="term"><dt>WITH CHECK</dt><dd>RLS의 <b>쓰기</b> 규칙. "남의 회사 값으로 저장하지 마"를 DB가 강제.</dd></div>
+      <div class="term"><dt>fail-closed</dt><dd>값이 없거나 애매하면 <b>막는 쪽</b>으로 동작(반대 fail-open은 금지).</dd></div>
+      <div class="term"><dt>access / refresh</dt><dd>access=짧게 쓰는 출입증(15분). refresh=재발급용 긴 교환권(수일).</dd></div>
+    </dl>
+  </section>
+
+  <!-- LAYER 1 -->
+  <section class="layer">
+    <header><span class="lnum">①</span><h2>인증 · 토큰</h2></header>
+    <div class="body">
+      <p class="purpose"><span class="plead">이 계층이 존재하는 이유</span>뒷단의 모든 계층이 "이 요청자가 누구이고 어느 회사 소속인지"를 <b>매번 다시 캐묻지 않고 신뢰</b>할 수 있으려면, 신원을 <b>한 번 확실히 확인해 위조 불가능한 형태로 봉인</b>해줄 입구가 필요하다. 그 입구가 이 계층이며, 여기서 <code>workspace_id</code>라는 배턴이 처음 만들어진다.</p>
+      <div class="cast"><span class="cl">구성원</span><b>발급자</b>(<code>TokenIssuer</code>)가 배턴을 만들고, <b>검문자</b>(<code>TokenVerifier</code>)가 들어오는 출입증을 확인하며, <b>재발급 담당</b>(<code>RefreshService</code>)과 <b>보관소</b>(<code>RefreshTokenStore</code>)가 출입증 갱신과 교환권 보관을, <b>전환 담당</b>(<code>WorkspaceSwitchService</code>)이 회사 전환을 맡는다.</div>
+
+      <figure>
+        <svg viewBox="0 0 860 250" role="img" aria-label="로그인에 성공하면 발급자가 짧은 출입증과 긴 교환권을 발급하고, 출입증이 만료되면 재발급 담당이 교환권을 받아 새 출입증을 내주며 낡은 교환권은 폐기한다. 재사용된 교환권은 전체 폐기된다">
+          <defs>
+            <marker id="a1" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto"><polygon points="0 0,8 3,0 6" fill="var(--ink-faint)"/></marker>
+            <marker id="a1a" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto"><polygon points="0 0,8 3,0 6" fill="var(--blueprint)"/></marker>
+          </defs>
+          <rect class="node" x="24" y="98" width="104" height="48" rx="9"/>
+          <text class="lab" x="76" y="127" text-anchor="middle">로그인</text>
+          <rect class="node" x="158" y="96" width="138" height="52" rx="9"/>
+          <text class="lab" x="227" y="118" text-anchor="middle">TokenIssuer</text>
+          <text class="mono" x="227" y="135" text-anchor="middle">발급자</text>
+          <rect class="acc" x="348" y="34" width="168" height="52" rx="9"/>
+          <text class="lab" x="432" y="56" text-anchor="middle">access · 출입증</text>
+          <text class="mono" x="432" y="73" text-anchor="middle">15분</text>
+          <rect class="node" x="348" y="150" width="168" height="52" rx="9"/>
+          <text class="lab" x="432" y="172" text-anchor="middle">refresh · 교환권</text>
+          <text class="mono" x="432" y="189" text-anchor="middle">수일 · 해시 저장</text>
+          <rect class="node" x="576" y="96" width="152" height="52" rx="9"/>
+          <text class="lab" x="652" y="118" text-anchor="middle">RefreshService</text>
+          <text class="mono" x="652" y="135" text-anchor="middle">재발급 · 회전</text>
+          <line class="edge" x1="128" y1="122" x2="154" y2="122" marker-end="url(#a1)"/>
+          <text class="edgelab" x="141" y="114" text-anchor="middle">성공</text>
+          <line class="edge" x1="296" y1="112" x2="344" y2="70" marker-end="url(#a1)"/>
+          <text class="edgelab" x="312" y="86" text-anchor="middle">발급</text>
+          <line class="edge" x1="296" y1="132" x2="344" y2="170" marker-end="url(#a1)"/>
+          <text class="edgelab" x="312" y="162" text-anchor="middle">발급</text>
+          <line class="edge" x1="516" y1="66" x2="572" y2="112" marker-end="url(#a1)"/>
+          <text class="edgelab" x="556" y="80" text-anchor="middle">만료 후</text>
+          <line class="edge" x1="516" y1="176" x2="572" y2="134" marker-end="url(#a1)"/>
+          <text class="edgelab" x="556" y="178" text-anchor="middle">제시</text>
+          <path class="baton" style="stroke-dasharray:5 4" d="M652 96 C652 30 560 26 520 40" marker-end="url(#a1a)"/>
+          <text class="edgelab" x="600" y="22" text-anchor="middle" fill="var(--blueprint)">새 출입증(회전)</text>
+          <text class="mono" x="652" y="172" text-anchor="middle" fill="var(--warn)">재사용 → 전체 폐기</text>
+        </svg>
+        <figcaption><b>출입증은 짧게, 교환권으로 갱신.</b> 발급자가 출입증(access·15분)과 교환권(refresh·수일)을 함께 내주고, 출입증이 만료되면 재발급 담당이 교환권을 받아 <b>새 출입증을 내주며 낡은 교환권은 폐기</b>한다(회전). 이미 폐기된 교환권이 다시 오면 도난으로 보고 전부 끊는다.</figcaption>
+      </figure>
+
+      <div class="sub"><div class="subhead"><span class="mk">①-a</span> 컴포넌트와 책임</div>
+        <div class="cmps">
+          <div class="cmp"><span class="cn">TokenIssuer <span class="new">NEW</span></span>
+            <p><b>발급자</b>는 로그인에 성공한 사용자가 이후 요청마다 다시 인증받는 번거로움을 겪지 않게 하려고, 신원(user·workspace·role)을 새겨 <b>서명한 출입증(access)</b>과 그것을 재발급받을 <b>교환권(refresh)</b>을 내준다. 그 결과 신원이 위조 불가능한 종이 한 장에 봉인되어, 뒷단은 이 종이만 보고 요청자를 믿을 수 있다.</p></div>
+          <div class="cmp"><span class="cn">TokenVerifier <span class="new">NEW</span></span>
+            <p><b>검문자</b>는 위조되거나 만료된 출입증이 시스템 안으로 들어오는 것을 막기 위해, 들어온 access의 <b>서명과 만료 시각을 검사</b>한다. 유효할 때만 안의 신원 정보를 꺼내 통과시키고 아니면 문 앞에서 돌려보내(401), 덕분에 뒷단은 "이미 검증된 요청"만 마주한다.</p></div>
+          <div class="cmp"><span class="cn">RefreshService <span class="new">NEW</span></span>
+            <p><b>재발급 담당</b>은 출입증을 짧게 유지하면서도 사용자가 몇 분마다 재로그인하는 불편이 없게 하려고, 교환권을 받아 새 출입증을 내준다. 이때 낡은 교환권은 즉시 폐기하고 새것으로 바꿔(회전), 새어 나간 교환권이 재사용되면 도난으로 간주해 그 사용자의 교환권 전부를 끊어 피해를 막는다.</p></div>
+          <div class="cmp"><span class="cn">RefreshTokenStore <span class="new">NEW</span></span>
+            <p><b>교환권 보관소</b>는 수명이 긴 교환권이 탈취되면 위험하다는 점 때문에, 원문이 아닌 <b>해시 형태로만</b> 저장해 DB가 유출돼도 실물이 노출되지 않게 한다. 발급·조회·폐기를 한곳에서 맡아 "이 교환권이 아직 살아있는가"를 판단할 단일 근거지가 된다.</p></div>
+          <div class="cmp"><span class="cn">WorkspaceSwitchService <span class="new">NEW</span></span>
+            <p><b>회사 전환 담당</b>은 한 사람이 여러 회사에 속할 수 있기 때문에, 사용자가 활성 회사를 바꿀 때 그 회사의 <b>멤버십을 먼저 확인</b>하고 새 <code>workspace_id</code>가 박힌 출입증을 재발급한다. 그 결과 회사 전환이 권한 재확인을 거친 정식 절차가 되어, 클라이언트가 임의로 회사를 바꿔치기할 수 없다.</p></div>
+        </div>
+      </div>
+
+      <div class="sub"><div class="subhead"><span class="mk">①-b</span> 협력 흐름 — 로그인과 재발급</div>
+        <ol class="seq">
+          <li>사용자가 OAuth 로그인에 성공하면, <span class="who">TokenIssuer</span>는 이후의 신원 확인 비용을 없애려고 <b>짧은 출입증(15분)과 긴 교환권(수일)</b>을 함께 발급하고, 교환권은 유출 대비로 해시만 저장한다.</li>
+          <li>클라이언트가 그 출입증으로 API를 호출하다가 <b>출입증이 만료되면</b>, 서버는 더 이상 신원을 신뢰할 수 없으므로 요청을 <b>401로 돌려보낸다</b>.</li>
+          <li>401을 받은 클라이언트는 사용자를 다시 로그인시키지 않으려고 <b>교환권으로 재발급을 요청</b>한다.</li>
+          <li><span class="who">RefreshService</span>는 교환권을 저장본과 대조해 정당하면 <b>낡은 것을 폐기하고 새 교환권·출입증을 함께</b> 내준다(회전) — 그래서 한 번 쓴 교환권은 두 번 통하지 않는다.</li>
+          <li>만약 이미 폐기된 교환권이 다시 나타나면, 이는 누군가 훔쳐 쓰고 있다는 신호이므로, <b>그 사용자의 교환권을 전부 끊어</b> 계정을 보호한다.</li>
+        </ol>
+      </div>
+
+      <div class="sub"><div class="subhead"><span class="mk">①-c</span> 비즈니스 규칙 · 예외</div>
+        <ul class="rules">
+          <li class="rule"><span class="tag">규칙</span> 무상태 검증이라 서버가 개별 출입증을 되불러 지울 수 없으므로, <b>출입증을 짧게</b> 둬서 "만료 시간 = 최대 폐기 지연"이 되게 한다.</li>
+          <li class="rule"><span class="tag">규칙</span> 교환권을 1회용으로 회전시키는 이유는, 탈취되더라도 <b>재사용을 감지해 즉시 무효화</b>함으로써 피해 창을 최소화하기 위해서다.</li>
+          <li class="warn"><span class="tag">주의</span> 회사 전환은 반드시 멤버십 재확인 후 재발급 — 토큰의 wsid는 서명이 지키므로 클라이언트가 손대면 서명이 깨져 걸린다.</li>
+          <li class="warn"><span class="tag">주의</span> 서명 시크릿은 유출 시 모든 토큰을 위조당하므로, <b>코드가 아닌 환경변수/시크릿 매니저</b>에 둔다.</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- LAYER 2 -->
+  <section class="layer">
+    <header><span class="lnum">②</span><h2>게이트 · 테넌트 컨텍스트</h2></header>
+    <div class="body">
+      <p class="purpose"><span class="plead">이 계층이 존재하는 이유</span>①이 만든 배턴은 아직 "애플리케이션 코드가 아는 값"일 뿐, DB는 그것을 모른다. 이 계층은 <b>배턴을 DB가 알아듣는 언어로 번역해 심어주는 통역사</b> 역할을 한다. 모든 요청이 반드시 이 한 지점을 지나게 만들어, 뒷단 어디서도 테넌트를 다시 신경 쓰지 않아도 되게 하는 것이 목적이다.</p>
+      <div class="cast"><span class="cl">구성원</span><b>신원 해석기</b>(<code>resolve_principal</code>)가 토큰을 풀어 <b>요청 주체 정보</b>(<code>RequestPrincipal</code>)를 만들고, <b>통역사</b>(<code>TenantUnitOfWork</code>)가 그 배턴을 DB가 알아듣는 언어로 심는다.</div>
+
+      <figure>
+        <svg viewBox="0 0 860 210" role="img" aria-label="앱만 아는 배턴(RequestPrincipal)을 통역사가 트랜잭션 안에서 SET LOCAL로 번역해 DB에 심으면, 이후 모든 쿼리에 회사가 자동 적용되고, 트랜잭션이 끝나면 그 값이 자동으로 소멸한다">
+          <defs><marker id="a2" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto"><polygon points="0 0,8 3,0 6" fill="var(--ink-faint)"/></marker></defs>
+          <rect class="node" x="24" y="82" width="182" height="58" rx="9"/>
+          <text class="lab" x="115" y="106" text-anchor="middle">RequestPrincipal</text>
+          <text class="mono" x="115" y="124" text-anchor="middle">앱이 아는 값 · A사</text>
+          <rect x="258" y="70" width="578" height="118" rx="12" fill="none" stroke="var(--line-strong)" stroke-width="1.4" stroke-dasharray="6 4"/>
+          <text class="mono" x="547" y="60" text-anchor="middle">트랜잭션 — 끝나면 배턴 자동 소멸</text>
+          <rect class="acc" x="292" y="92" width="236" height="56" rx="9"/>
+          <text class="lab" x="410" y="114" text-anchor="middle">SET LOCAL app.workspace_id</text>
+          <text class="mono" x="410" y="132" text-anchor="middle">DB가 아는 값</text>
+          <rect class="node" x="576" y="92" width="228" height="56" rx="9"/>
+          <text class="lab" x="690" y="114" text-anchor="middle">이후 모든 쿼리</text>
+          <text class="mono" x="690" y="132" text-anchor="middle">회사 자동 적용</text>
+          <line class="edge" x1="206" y1="112" x2="288" y2="118" marker-end="url(#a2)"/>
+          <text class="edgelab" x="246" y="104" text-anchor="middle">번역</text>
+          <line class="edge" x1="528" y1="120" x2="572" y2="120" marker-end="url(#a2)"/>
+          <text class="edgelab" x="550" y="112" text-anchor="middle">심음</text>
+        </svg>
+        <figcaption><b>배턴을 DB의 언어로 번역해 심는다.</b> 통역사(<code>TenantUnitOfWork</code>)는 앱만 아는 배턴을 트랜잭션 안에서 <code>SET LOCAL</code>로 DB에 심어, 이후 모든 쿼리에 회사가 <b>자동으로 걸리게</b> 한다. 트랜잭션이 끝나면 그 값이 사라져 다음 요청에 새지 않는다.</figcaption>
+      </figure>
+
+      <div class="sub"><div class="subhead"><span class="mk">②-a</span> 컴포넌트와 책임</div>
+        <div class="cmps">
+          <div class="cmp"><span class="cn">RequestPrincipal <span class="new">NEW</span></span>
+            <p><b>요청 주체 정보</b>는 아래 모든 계층이 같은 사실을 바라보게 하려고, "이 요청은 누구·어느 회사·무슨 역할"을 담은 <b>한 번 정해지면 바뀌지 않는 값 객체</b>로 존재한다. 불변이기 때문에 흐름 중간에 누가 몰래 회사를 바꿔치기할 여지가 없다.</p></div>
+          <div class="cmp"><span class="cn">resolve_principal <span class="new">NEW</span></span>
+            <p><b>신원 해석기</b>는 요청이 업무 로직에 닿기 전에 신원을 확정하려고, 토큰을 읽어 <span class="who">TokenVerifier</span>에 넘기고 그 결과로 <code>RequestPrincipal</code>을 만든다. 실패하면 그 자리에서 401로 끊어, 신원 불명 요청이 한 발짝도 더 들어오지 못하게 한다.</p></div>
+          <div class="cmp"><span class="cn">TenantUnitOfWork <span class="new">NEW</span></span>
+            <p><b>트랜잭션 통역사</b>는 배턴을 DB에 전달하려고, 요청 트랜잭션을 열면서 <code>SET LOCAL app.workspace_id</code>로 현재 회사를 <b>DB 세션에 심는다</b>. 이 한 줄이 ③의 RLS가 읽을 값을 놓아주는 다리이며, 트랜잭션이 끝나면 그 값은 자동으로 사라진다.</p></div>
+        </div>
+      </div>
+
+      <div class="sub"><div class="subhead"><span class="mk">②-b</span> 협력 흐름 — 한 요청의 진입</div>
+        <ol class="seq">
+          <li>요청이 도착하면 FastAPI는 업무 로직보다 먼저 <span class="who">resolve_principal</span>을 실행해, 신원을 확정하기 전에는 아무 일도 시작하지 않는다.</li>
+          <li>토큰 검증이 통과하면 <code>RequestPrincipal(user_id, workspace_id, role)</code>이 생기고, 실패하면 여기서 요청이 끝난다(401).</li>
+          <li>핸들러는 DB 작업을 시작하기 위해 <span class="who">TenantUnitOfWork</span>를 열고, 그 순간 <b>SET LOCAL로 배턴을 DB에 심어</b> 이후 모든 쿼리가 자동으로 회사에 묶이게 한다.</li>
+          <li>그 트랜잭션 안에서 기존 분석 서비스·리포지토리가 평소처럼 실행되지만, 이제는 <b>회사 조건을 손으로 붙이지 않아도</b> 격리가 걸린다.</li>
+          <li>요청이 정상 종료되면 커밋, 예외면 롤백 — 어느 쪽이든 <b>심어둔 배턴이 자동으로 지워져</b> 다음 요청에 남지 않는다.</li>
+        </ol>
+      </div>
+
+      <div class="sub"><div class="subhead"><span class="mk">②-c</span> 비즈니스 규칙 · 예외</div>
+        <ul class="rules">
+          <li class="rule"><span class="tag">규칙</span> wsid는 위조 가능성을 없애기 위해 <b>오직 Principal에서만</b> 나오게 하고, 라우트가 URL·본문으로 받은 회사값은 절대 신뢰하지 않는다.</li>
+          <li class="rule"><span class="tag">규칙</span> 읽기 전용 요청도 트랜잭션으로 감싸는 이유는, 배턴(GUC)이 없으면 ③이 fail-closed로 0건을 주기 때문 — 항상 배턴이 심긴 상태에서만 조회하게 한다.</li>
+          <li class="warn"><span class="tag">주의</span> 커넥션 풀에서 배턴이 옆 요청으로 새지 않게 하려면 반드시 <code>SET LOCAL</code>(트랜잭션 한정)을 쓴다. 세션 전역 <code>SET</code>은 재사용된 커넥션에 값을 남겨 누수를 일으킨다.</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- LAYER 3 -->
+  <section class="layer">
+    <header><span class="lnum">③</span><h2>격리 · RLS</h2></header>
+    <div class="body">
+      <p class="purpose"><span class="plead">이 계층이 존재하는 이유</span>코드는 언젠가 회사 조건을 빠뜨린다. 이 계층은 그 실수가 <b>사고로 이어지지 않도록, DB 자신이 마지막 문지기가 되어</b> 배턴과 일치하는 행만 내주게 한다. 앞 계층(코드)이 뚫려도 이 계층이 막는 <b>두 번째 방어선</b>이 목적이다.</p>
+      <div class="cast"><span class="cl">구성원</span><b>앱 전용 계정</b>(<code>app_user</code>)이 특권 없이 접속하고, <b>행 접근 정책</b>(RLS 정책)이 배턴과 일치하는 행만 허용하며, <b>배턴 판독기</b>(<code>current_setting</code>)가 ②가 심어둔 값을 읽어 정책에 넘긴다.</div>
+
+      <figure>
+        <svg viewBox="0 0 860 240" role="img" aria-label="앱이 app_user 계정으로 접속하면 RLS 검문을 거쳐 자기 회사 행만 받지만, 슈퍼유저로 접속하면 검문을 우회해 전체 행을 받으므로 앱의 슈퍼유저 접속은 금지된다">
+          <defs>
+            <marker id="g1" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto"><polygon points="0 0,8 3,0 6" fill="var(--good)"/></marker>
+            <marker id="w1" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto"><polygon points="0 0,8 3,0 6" fill="var(--warn)"/></marker>
+          </defs>
+          <!-- gate -->
+          <rect class="acc" x="320" y="86" width="220" height="68" rx="10"/>
+          <text class="lab" x="430" y="112" text-anchor="middle">RLS 검문소</text>
+          <text class="mono" x="430" y="132" text-anchor="middle">workspace_id = current_setting()</text>
+
+          <!-- lane A: app_user -->
+          <rect class="node" x="40" y="40" width="150" height="50" rx="9"/>
+          <text class="lab" x="115" y="62" text-anchor="middle">app_user 접속</text>
+          <text class="mono" x="115" y="79" text-anchor="middle">특권 없음</text>
+          <path class="edge" d="M190 66 C250 66 250 104 316 108" marker-end="url(#g1)"/>
+          <rect class="db" x="650" y="40" width="170" height="50" rx="9"/>
+          <text class="lab" x="735" y="62" text-anchor="middle">A사 행만</text>
+          <text class="ok" x="735" y="80" text-anchor="middle">✓ 안전</text>
+          <path class="edge" d="M540 108 C610 104 610 66 646 66" marker-end="url(#g1)"/>
+
+          <!-- lane B: superuser bypass -->
+          <rect class="warnb" x="40" y="168" width="150" height="50" rx="9"/>
+          <text class="lab" x="115" y="190" text-anchor="middle">슈퍼유저 접속</text>
+          <text class="mono" x="115" y="207" text-anchor="middle">BYPASSRLS</text>
+          <path class="warnstroke" d="M190 193 L646 193" marker-end="url(#w1)"/>
+          <text class="edgelab" x="418" y="184" text-anchor="middle" fill="var(--warn)">검문 우회 (bypass)</text>
+          <rect class="warnb" x="650" y="168" width="170" height="50" rx="9"/>
+          <text class="lab" x="735" y="190" text-anchor="middle">전체 회사 행</text>
+          <text class="no" x="735" y="208" text-anchor="middle">✗ 금지</text>
+        </svg>
+        <figcaption><b>왜 앱은 슈퍼유저로 접속하면 안 되나.</b> 앱을 <code>app_user</code>(특권 없는 계정)로 접속시키면 모든 쿼리가 <b>검문소를 거쳐</b> 자기 회사 행만 받는다. 슈퍼유저는 검문을 <b>그냥 통과(bypass)</b>해 전체를 보므로, 앱 접속 계정으로는 절대 쓰지 않는다.</figcaption>
+      </figure>
+
+      <div class="sub"><div class="subhead"><span class="mk">③-a</span> 구성요소와 책임 <span style="text-transform:none;letter-spacing:0;color:var(--ink-faint)">(DB 측이라 클래스 대신 역할·정책)</span></div>
+        <div class="cmps">
+          <div class="cmp"><span class="cn">app_user 역할 <span class="new">NEW</span></span>
+            <p><b>앱 전용 접속 계정</b>은 앱이 RLS를 우회할 여지를 원천 차단하기 위해, <b>BYPASSRLS 특권이 없는</b> 최소 권한으로 만들어진다. 앱이 이 계정으로만 접속하므로 모든 쿼리가 반드시 검문소를 거친다.</p></div>
+          <div class="cmp"><span class="cn">RLS 정책 <span class="new">NEW</span></span>
+            <p><b>행 접근 정책</b>은 개발자의 조건 누락과 무관하게 격리를 보장하려고, 읽기에는 <code>USING</code>, 쓰기에는 <code>WITH CHECK</code>를 걸어 <b>workspace_id가 배턴과 일치하는 행만</b> 읽고 쓰게 강제한다. 그래서 실수로 필터를 빠뜨린 쿼리조차 남의 회사 데이터에 닿지 못한다.</p></div>
+          <div class="cmp"><span class="cn">current_setting()</span>
+            <p><b>배턴 판독기</b>는 정책이 "지금 어느 회사인가"를 알아야 하기에, ②가 <code>SET LOCAL</code>로 심어둔 <code>app.workspace_id</code>를 읽어 정책에 넘긴다. 값이 없으면 일부러 <b>아무 행과도 일치하지 않게</b> 하여 안전한 쪽으로 닫힌다.</p></div>
+        </div>
+      </div>
+
+      <div class="sub"><div class="subhead"><span class="mk">③-b</span> 협력 흐름 — 한 쿼리가 걸러지는 과정</div>
+        <ol class="seq">
+          <li>리포지토리가 <span class="who">app_user</span> 계정으로 <b>회사 조건 없는 평범한 조회</b>를 실행한다 — 격리는 자기 책임이 아니라고 믿기 때문.</li>
+          <li>PostgreSQL이 그 조회에 RLS 정책을 자동 적용해, <b>workspace_id가 지금 배턴과 같은 행만</b> 통과시킨다.</li>
+          <li>저장(INSERT/UPDATE)이면 <code>WITH CHECK</code>가 한 번 더 확인해, <b>남의 회사 값으로 쓰려는 시도를 거부</b>한다.</li>
+        </ol>
+      </div>
+
+      <div class="sub"><div class="subhead"><span class="mk">③-c</span> 비즈니스 규칙 · 예외</div>
+        <ul class="rules">
+          <li class="rule"><span class="tag">규칙</span> 정책을 빠르고 단순하게 유지하려고 <code>workspace_id</code>를 모든 테넌트 테이블에 <b>컬럼으로 두어</b> 비교가 등호 하나로 끝나게 한다(조인 정책은 느리다).</li>
+          <li class="rule"><span class="tag">규칙</span> 배턴이 없을 때 데이터가 새지 않도록, 정책은 값이 없으면 <b>0건을 반환(fail-closed)</b>하게 설계한다 — 절대 "값 없으면 전부"로 열지 않는다.</li>
+          <li class="warn"><span class="tag">주의</span> 슈퍼유저·테이블 소유자는 RLS를 건너뛰므로 앱은 절대 그 계정으로 접속하지 않고, 소유자까지 강제하려면 <code>FORCE RLS</code>를 켠다.</li>
+          <li class="warn"><span class="tag">주의</span> 새 테넌트 테이블을 추가하면서 RLS를 깜빡하면 그 테이블이 곧 구멍이 되므로, <b>테스트로 "RLS 미적용 테이블 0건"을 강제</b>한다.</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- LAYER 4 -->
+  <section class="layer">
+    <header><span class="lnum">④</span><h2>저장소 · PostgreSQL + Elasticsearch</h2></header>
+    <div class="body">
+      <p class="purpose"><span class="plead">이 계층이 존재하는 이유</span>격리는 원본 DB만 지켜서는 부족하다. 문서 검색을 맡는 Elasticsearch는 <b>별도의 저장소</b>라서 RLS가 닿지 않으므로, <b>같은 배턴을 검색 엔진에도 강제</b>해 두 저장소가 같은 규칙 아래 놓이게 하는 것이 목적이다.</p>
+      <div class="cast"><span class="cl">구성원</span><b>검색 관문</b>(<code>TenantDocumentSearch</code>)이 모든 검색에 회사 필터를 강제하고, <b>범위 제한 API키</b>가 ES 자체에서 한 번 더 막으며, <b>색인기</b>(<code>DocumentIndexer</code>)가 원본(PG)을 검색 사본(ES)으로 옮긴다.</div>
+
+      <figure>
+        <svg viewBox="0 0 860 236" role="img" aria-label="서비스의 요청이 같은 workspace_id 배턴을 달고 두 갈래로 나뉘어, 위쪽은 RLS를 거쳐 PostgreSQL 원본으로, 아래쪽은 검색 관문을 거쳐 Elasticsearch 사본으로 가며, 색인기가 원본을 사본으로 재색인한다">
+          <defs><marker id="a4" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto"><polygon points="0 0,8 3,0 6" fill="var(--ink-faint)"/></marker></defs>
+          <rect class="node" x="24" y="94" width="112" height="52" rx="9"/>
+          <text class="lab" x="80" y="124" text-anchor="middle">서비스</text>
+          <rect class="acc" x="250" y="40" width="180" height="52" rx="9"/>
+          <text class="lab" x="340" y="62" text-anchor="middle">RLS 정책</text>
+          <text class="mono" x="340" y="79" text-anchor="middle">DB가 강제</text>
+          <rect class="db" x="470" y="40" width="170" height="52" rx="9"/>
+          <text class="lab" x="555" y="62" text-anchor="middle">PostgreSQL</text>
+          <text class="mono" x="555" y="79" text-anchor="middle">원본</text>
+          <rect class="acc" x="250" y="150" width="180" height="52" rx="9"/>
+          <text class="lab" x="340" y="172" text-anchor="middle">검색 관문</text>
+          <text class="mono" x="340" y="189" text-anchor="middle">필터 강제</text>
+          <rect class="db" x="470" y="150" width="170" height="52" rx="9"/>
+          <text class="lab" x="555" y="172" text-anchor="middle">Elasticsearch</text>
+          <text class="mono" x="555" y="189" text-anchor="middle">사본 · 범위 API키</text>
+          <path class="edge" d="M136 112 C190 96 200 74 246 68" marker-end="url(#a4)"/>
+          <path class="edge" d="M136 130 C190 148 200 172 246 176" marker-end="url(#a4)"/>
+          <rect class="pill" x="172" y="60" width="40" height="19" rx="9"/><text class="pilltx" x="192" y="73" text-anchor="middle">wsid</text>
+          <rect class="pill" x="172" y="162" width="40" height="19" rx="9"/><text class="pilltx" x="192" y="175" text-anchor="middle">wsid</text>
+          <line class="edge" x1="430" y1="66" x2="466" y2="66" marker-end="url(#a4)"/>
+          <line class="edge" x1="430" y1="176" x2="466" y2="176" marker-end="url(#a4)"/>
+          <line class="conn" x1="555" y1="92" x2="555" y2="150" marker-end="url(#a4)"/>
+          <text class="edgelab" x="600" y="124" text-anchor="start">재색인</text>
+        </svg>
+        <figcaption><b>서로 다른 저장소, 같은 배턴.</b> 원본(PostgreSQL)은 RLS로, 검색 사본(Elasticsearch)은 관문 필터와 범위 제한 API키로 — 두 저장소가 <b>같은 <code>workspace_id</code>로</b> 격리된다. ES는 원본에서 재색인 가능한 파생물이다.</figcaption>
+      </figure>
+
+      <div class="sub"><div class="subhead"><span class="mk">④-a</span> 컴포넌트와 책임</div>
+        <div class="cmps">
+          <div class="cmp"><span class="cn">TenantDocumentSearch <span class="new">NEW</span></span>
+            <p><b>검색 관문</b>은 누군가 회사 필터를 빠뜨린 채 ES에 질의하는 일을 원천 차단하려고, <b>모든 검색이 반드시 지나는 단 하나의 통로(choke-point)</b>가 되어 workspace 필터를 항상 자동으로 끼워 넣는다. 통로가 하나뿐이라 빠뜨릴 자리가 없다.</p></div>
+          <div class="cmp"><span class="cn">ES API 키 / 역할 <span class="new">NEW</span></span>
+            <p><b>검색 계정</b>은 애플리케이션 코드가 실수해도 ES 스스로 막게 하려고, API 키를 <b>특정 workspace 범위에 묶어(문서수준보안)</b> 그 회사 밖 문서는 애초에 검색되지 않게 한다 — RLS를 ES에서 흉내 내는 셈이다.</p></div>
+          <div class="cmp"><span class="cn">DocumentIndexer</span>
+            <p><b>색인기</b>는 검색용 사본을 원본과 맞추기 위해, PostgreSQL의 문서를 ES로 옮겨 담는다. ES는 언제든 <b>원본에서 다시 만들 수 있는 사본</b>이므로, 문제가 생기면 지우고 재색인하면 된다.</p></div>
+        </div>
+      </div>
+
+      <div class="sub"><div class="subhead"><span class="mk">④-b</span> 협력 흐름 — 문서 검색</div>
+        <ol class="seq">
+          <li>서비스가 <span class="who">TenantDocumentSearch</span>에 검색을 맡기며, 회사 격리는 관문이 알아서 한다고 믿고 <b>질문과 배턴만</b> 넘긴다.</li>
+          <li>관문은 ES 질의에 <b>workspace 필터를 무조건 끼워 넣어</b>, 코드가 무엇을 검색하든 회사 밖으로 새지 않게 한다.</li>
+          <li>ES는 <b>인증된 키의 허용 범위와 필터가 겹치는 문서만</b> 돌려주어, 코드·엔진 양쪽에서 이중으로 격리된 결과가 나온다.</li>
+        </ol>
+      </div>
+
+      <div class="sub"><div class="subhead"><span class="mk">④-c</span> 비즈니스 규칙 · 예외</div>
+        <ul class="rules">
+          <li class="warn"><span class="tag">주의</span> ES 보안(TLS + API 키)을 켜지 않으면 위의 모든 격리가 통째로 무의미해지므로, 이것이 <b>가장 먼저 닫아야 할 구멍</b>이다.</li>
+          <li class="rule"><span class="tag">규칙</span> 호출자가 관문을 우회해 <b>raw 검색을 직접 짜지 못하게</b> 막는다 — 필터 주입 지점이 둘이 되는 순간 하나를 빠뜨린다.</li>
+          <li class="rule"><span class="tag">규칙</span> 원본과 사본이 어긋나면 항상 <b>PostgreSQL을 진실로 보고 재색인</b>한다(ES는 파생물).</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- LAYER 5 -->
+  <section class="layer">
+    <header><span class="lnum">⑤</span><h2>두뇌 · 메모리</h2></header>
+    <div class="body">
+      <p class="purpose"><span class="plead">이 계층이 존재하는 이유</span>지금 에이전트는 매 질문을 <b>백지에서</b> 답한다. 사용자가 "그럼 그 캠페인은?"처럼 앞 대화를 이어 물으려면, 시스템이 <b>지난 대화를 기억</b>해야 한다. 이 계층은 그 기억을 만들되, <b>기억마저 회사별로 격리</b>(배턴 안에서 저장)해 A사 대화가 B사 답변에 섞이지 않게 하는 것이 목적이다.</p>
+      <div class="cast"><span class="cl">구성원</span><b>기억 구성기</b>(<code>MemoryAssembler</code>)가 과거 대화로 문맥을 짓고, <b>대화 저장소</b>(<code>ConversationStore</code>)가 오간 발언을 남기며, <b>요약기</b>(<code>Summarizer</code>)가 길어진 대화를 압축하고, <b>상태 보관</b>(<code>Checkpointer</code>)이 여러 턴의 런타임 상태를 잇는다.</div>
+
+      <figure>
+        <svg viewBox="0 0 860 250" role="img" aria-label="질문이 오면 최근 턴과 요약을 로드해 그래프에 넣고, 답변 뒤 턴을 저장하며, 길어지면 옛 턴을 요약으로 압축하는 순환. 모든 저장은 회사 격리 안에서 이뤄진다">
+          <defs>
+            <marker id="m5" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto"><polygon points="0 0,8 3,0 6" fill="var(--ink-faint)"/></marker>
+            <marker id="m5g" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto"><polygon points="0 0,8 3,0 6" fill="var(--good)"/></marker>
+          </defs>
+          <rect class="node" x="320" y="14" width="220" height="42" rx="9"/>
+          <text class="lab" x="430" y="35" text-anchor="middle">러닝 요약</text>
+          <text class="mono" x="430" y="50" text-anchor="middle">conversation_summaries</text>
+
+          <rect class="acc" x="330" y="104" width="200" height="60" rx="10"/>
+          <text class="lab" x="430" y="130" text-anchor="middle">LangGraph 그래프</text>
+          <text class="mono" x="430" y="149" text-anchor="middle">문맥 + 질문 → 추론</text>
+
+          <rect class="db" x="315" y="200" width="230" height="42" rx="9"/>
+          <text class="lab" x="430" y="221" text-anchor="middle">turns 테이블 · 회사 격리</text>
+          <text class="mono" x="430" y="236" text-anchor="middle">RLS</text>
+
+          <rect class="node" x="40" y="110" width="96" height="48" rx="9"/>
+          <text class="lab" x="88" y="139" text-anchor="middle">질문</text>
+          <rect class="node" x="724" y="110" width="96" height="48" rx="9"/>
+          <text class="lab" x="772" y="139" text-anchor="middle">답변</text>
+
+          <line class="edge" x1="136" y1="134" x2="326" y2="134" marker-end="url(#m5)"/>
+          <text class="edgelab" x="231" y="126" text-anchor="middle">질문 + 배턴</text>
+          <line class="edge" x1="530" y1="134" x2="720" y2="134" marker-end="url(#m5)"/>
+          <text class="edgelab" x="625" y="126" text-anchor="middle">최종 답변</text>
+
+          <line class="edge" x1="398" y1="104" x2="398" y2="58" marker-end="url(#m5)"/>
+          <text class="edgelab" x="300" y="84" text-anchor="end">길어지면 압축</text>
+          <line class="edge" x1="470" y1="56" x2="470" y2="100" marker-end="url(#m5)"/>
+          <text class="edgelab" x="560" y="84" text-anchor="start">요약 주입</text>
+
+          <line class="edge" x1="398" y1="200" x2="398" y2="168" marker-end="url(#m5)"/>
+          <text class="edgelab" x="300" y="188" text-anchor="end">최근 N턴 로드</text>
+          <line class="edge" x1="470" y1="164" x2="470" y2="196" marker-end="url(#m5g)"/>
+          <text class="edgelab" x="560" y="188" text-anchor="start">턴 저장(RLS)</text>
+        </svg>
+        <figcaption><b>대화 한 턴의 기억 순환.</b> 그래프는 답하기 전 <b>최근 턴과 요약을 읽어</b> 문맥을 되살리고, 답한 뒤 <b>새 턴을 저장</b>한다. 대화가 길어지면 옛 턴을 요약으로 눌러 담아 비용을 통제하며, <b>모든 저장은 배턴(회사) 안에서만</b> 일어난다.</figcaption>
+      </figure>
+
+      <div class="sub"><div class="subhead"><span class="mk">⑤-a</span> 컴포넌트와 책임</div>
+        <div class="cmps">
+          <div class="cmp"><span class="cn">MemoryAssembler <span class="new">NEW</span></span>
+            <p><b>기억 구성기</b>는 에이전트가 앞 대화를 이어받아 답하게 하려고, 요청 시 <b>최근 턴과 러닝 요약을 모아</b> 그래프에 넣을 문맥을 짓는다. 토큰 예산 안에 맞춰 담아, 비용은 통제하면서 맥락은 잃지 않게 한다.</p></div>
+          <div class="cmp"><span class="cn">ConversationStore <span class="new">NEW</span></span>
+            <p><b>대화 저장소</b>는 나중에 이력·감사를 되짚을 수 있게 하려고, 오간 발언을 <b>회사 표식(wsid)과 함께 turns로 저장</b>하고 필요 시 최근 것을 되읽어준다. RLS 아래 있어 각 회사는 자기 대화만 보게 된다.</p></div>
+          <div class="cmp"><span class="cn">Summarizer <span class="new">NEW</span></span>
+            <p><b>요약기</b>는 대화가 길어질수록 매번 전체를 LLM에 넣는 비용이 커지는 문제를 막으려고, <b>옛 턴을 짧은 요약으로 압축</b>한다. 원본 턴은 지우지 않고 남겨 이력·감사의 진실을 보존한다.</p></div>
+          <div class="cmp"><span class="cn">ConversationCheckpointer <span class="new">NEW</span></span>
+            <p><b>그래프 상태 보관</b>은 여러 턴에 걸친 도구 호출·중간 상태를 매번 다시 조립하지 않아도 되게 하려고, LangGraph 런타임 상태를 <b>대화 단위(thread=conversation_id)</b>로 이어 붙인다 — 제품의 진실 원본이 아닌 실행 편의 장치다.</p></div>
+        </div>
+      </div>
+
+      <div class="sub"><div class="subhead"><span class="mk">⑤-b</span> 협력 흐름 — 대화 한 턴</div>
+        <ol class="seq">
+          <li>요청이 <code>conversation_id</code>와 질문을 들고 오면, 시스템은 이 대화가 어디까지 진행됐는지부터 확인한다.</li>
+          <li><span class="who">MemoryAssembler</span>가 최근 턴과 요약을 로드해, 에이전트가 <b>앞 맥락 위에서 답하도록</b> 문맥을 구성한다.</li>
+          <li>그래프가 문맥과 질문으로 추론해 답변과 도구 출력을 낸다.</li>
+          <li><span class="who">ConversationStore</span>가 사용자 질문과 답변을 <b>회사 표식과 함께 저장</b>해, 다음 턴이 이어질 근거를 남긴다.</li>
+          <li>대화가 예산을 넘으면 <span class="who">Summarizer</span>가 옛 턴을 요약으로 눌러 담되, <b>원본은 지우지 않아</b> 이력이 사라지지 않게 한다.</li>
+        </ol>
+      </div>
+
+      <div class="sub"><div class="subhead"><span class="mk">⑤-c</span> 비즈니스 규칙 · 예외</div>
+        <ul class="rules">
+          <li class="warn"><span class="tag">주의</span> 애써 세운 격리가 기억에서 뚫리지 않도록, 모든 메모리 테이블에 <code>workspace_id</code>+RLS를 걸고 <b>요약조차 회사별로</b> 둔다.</li>
+          <li class="rule"><span class="tag">규칙</span> 제품·감사의 진실은 <b>turns 테이블</b>이고 체크포인터는 실행 편의이므로, 둘이 어긋나면 turns를 기준으로 삼는다.</li>
+          <li class="rule"><span class="tag">규칙</span> 도구가 조회할 범위는 항상 Principal의 배턴에서만 나오게 해, 에이전트가 <b>남의 회사 데이터를 근거로 답하지 못하게</b> 한다.</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- LAYER 6 -->
+  <section class="layer">
+    <header><span class="lnum">⑥</span><h2>운영 · 신뢰</h2></header>
+    <div class="body">
+      <p class="purpose"><span class="plead">이 계층이 존재하는 이유</span>격리를 아무리 잘 세워도, 사고는 언젠가 난다. 그때 <b>"누가 무엇을 봤는지 되짚을 수 있어야"</b> 하고, 회사별 비밀(광고 토큰 등)은 <b>서로 다른 열쇠로 잠가</b> 한 곳이 뚫려도 옆 회사로 번지지 않아야 한다 — 그 대비가 이 계층의 목적이다.</p>
+      <div class="cast"><span class="cl">구성원</span><b>감사 기록기</b>(<code>AuditLogger</code>)와 <b>감사 저장소</b>(<code>AuditLogStore</code>)가 "누가 무엇을 봤는지" 지울 수 없는 흔적으로 남기고, <b>회사별 열쇠 공급자</b>(<code>WorkspaceKeyProvider</code>)가 회사마다 다른 열쇠로 비밀을 가른다.</div>
+
+      <figure>
+        <svg viewBox="0 0 860 250" role="img" aria-label="하나의 마스터 열쇠(KEK)가 회사마다 다른 데이터 열쇠(DEK)를 감싸고, 각 DEK가 그 회사 데이터만 암호화한다. A사 열쇠로는 B사 데이터를 열 수 없어 유출이 옆 회사로 번지지 않는다">
+          <defs><marker id="a6" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto"><polygon points="0 0,8 3,0 6" fill="var(--ink-faint)"/></marker></defs>
+          <rect class="acc" x="338" y="18" width="184" height="50" rx="9"/>
+          <text class="lab" x="430" y="40" text-anchor="middle">KEK · 마스터 열쇠</text>
+          <text class="mono" x="430" y="57" text-anchor="middle">(KMS)</text>
+          <rect class="node" x="150" y="112" width="170" height="48" rx="9"/>
+          <text class="lab" x="235" y="141" text-anchor="middle">DEK · A사 열쇠</text>
+          <rect class="node" x="540" y="112" width="170" height="48" rx="9"/>
+          <text class="lab" x="625" y="141" text-anchor="middle">DEK · B사 열쇠</text>
+          <rect class="db" x="150" y="196" width="170" height="46" rx="9"/>
+          <text class="lab" x="235" y="224" text-anchor="middle">A사 데이터 · 암호화</text>
+          <rect class="db" x="540" y="196" width="170" height="46" rx="9"/>
+          <text class="lab" x="625" y="224" text-anchor="middle">B사 데이터 · 암호화</text>
+          <line class="edge" x1="392" y1="68" x2="272" y2="108" marker-end="url(#a6)"/>
+          <text class="edgelab" x="308" y="82" text-anchor="middle">감쌈</text>
+          <line class="edge" x1="468" y1="68" x2="588" y2="108" marker-end="url(#a6)"/>
+          <text class="edgelab" x="552" y="82" text-anchor="middle">감쌈</text>
+          <line class="edge" x1="235" y1="160" x2="235" y2="192" marker-end="url(#a6)"/>
+          <text class="edgelab" x="180" y="180" text-anchor="end">암호화</text>
+          <line class="edge" x1="625" y1="160" x2="625" y2="192" marker-end="url(#a6)"/>
+          <text class="edgelab" x="680" y="180" text-anchor="start">암호화</text>
+          <text class="mono" x="430" y="182" text-anchor="middle" fill="var(--warn)">회사마다 다른 열쇠 → 옆으로 안 번짐</text>
+        </svg>
+        <figcaption><b>봉투 암호화 — 회사마다 다른 열쇠.</b> 하나의 마스터 열쇠(KEK)가 회사별 데이터 열쇠(DEK)를 감싸고, 각 DEK는 그 회사 데이터만 암호화한다. <b>A사 열쇠로 B사 데이터를 못 열어</b> 유출이 옆으로 번지지 않고, KEK만 교체하면 데이터를 다시 암호화하지 않고 회전할 수 있다.</figcaption>
+      </figure>
+
+      <div class="sub"><div class="subhead"><span class="mk">⑥-a</span> 컴포넌트와 책임</div>
+        <div class="cmps">
+          <div class="cmp"><span class="cn">AuditLogger <span class="new">NEW</span></span>
+            <p><b>감사 기록기</b>는 사고가 났을 때 경위를 추적할 수 있게 하려고, 민감한 행위가 일어날 때마다 <b>누가·언제·어느 회사·무엇을</b>을 남긴다. 이미 있는 추적 식별자(OTel trace_id)와 묶어, 로그와 실제 실행을 연결한다.</p></div>
+          <div class="cmp"><span class="cn">AuditLogStore <span class="new">NEW</span></span>
+            <p><b>감사 저장소</b>는 기록이 사후에 조작되면 증거로서 무의미해지므로, <b>추가만 되고 수정·삭제가 안 되게</b> 보관한다. 자신도 RLS 아래 있어 각 회사는 자기 기록만 열람한다.</p></div>
+          <div class="cmp"><span class="cn">WorkspaceKeyProvider <span class="new">NEW</span></span>
+            <p><b>회사별 열쇠 공급자</b>는 한 회사의 비밀이 새도 다른 회사로 번지지 않게 하려고, <b>회사마다 다른 데이터 열쇠(DEK)</b>를 마스터 열쇠(KEK)로 풀어 제공한다. 그래서 유출의 영향 범위가 그 회사 하나로 갇힌다.</p></div>
+        </div>
+      </div>
+
+      <div class="sub"><div class="subhead"><span class="mk">⑥-b</span> 협력 흐름 — 민감 조회와 암호화 데이터</div>
+        <ol class="seq">
+          <li>서비스가 민감한 행위(문서 열람·계정 연결 등)를 하기 전후로 <span class="who">AuditLogger</span>에 <b>흔적을 남겨</b>, 나중에 되짚을 수 있게 한다.</li>
+          <li>광고 토큰 같은 암호화 데이터가 필요하면 <span class="who">WorkspaceKeyProvider</span>가 <b>그 회사 전용 열쇠로만</b> 복호화해, 옆 회사 열쇠로는 열리지 않게 한다.</li>
+          <li>감사 기록은 추가만 되고, 조회는 RLS로 <b>자기 회사 것만</b> 보인다.</li>
+        </ol>
+      </div>
+
+      <div class="sub"><div class="subhead"><span class="mk">⑥-c</span> 비즈니스 규칙 · 예외</div>
+        <ul class="rules">
+          <li class="rule"><span class="tag">규칙</span> 감사로그는 증거력을 위해 <b>추가 전용(수정·삭제 불가)</b>이어야 하고, 그 자신도 회사별로 격리한다.</li>
+          <li class="warn"><span class="tag">주의</span> 로그에 토큰·비밀번호 <b>원문을 남기면 로그가 곧 유출원</b>이 되므로, 참조나 마스킹만 남긴다.</li>
+          <li class="rule"><span class="tag">규칙</span> 마스터 열쇠(KEK)는 데이터를 다시 암호화하지 않고 <b>감싼 것만 갈아</b> 회전할 수 있게 설계하고, 열쇠·시크릿은 코드 밖에 둔다.</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- CLOSING -->
+  <section class="closing">
+    <h2>맺음 — 왜 이렇게 나눴는가</h2>
+    <p>여섯 계층은 각자 다른 일을 하지만 <b>하나의 목표</b>를 공유한다: 사람의 조심성에 기대지 않고, 시스템이 스스로 회사를 갈라놓는 것. ①이 배턴을 만들고, ②가 그것을 DB의 언어로 번역해 심고, ③④가 그 값으로 데이터와 검색에 문을 걸고, ⑤⑥의 새 기록마저 같은 배턴 안에서만 태어난다.</p>
+    <p class="big"><b>workspace_id 하나가 인증 → 게이트 → DB → 검색 → 메모리 → 감사까지 끊기지 않고 관통하는 것</b> — 그 배턴을 어느 계층도 떨어뜨리지 않게 하는 것이 이 아키텍처 전체의 설계 의도다.</p>
+  </section>
+</div>
+</body>
+</html>

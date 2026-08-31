@@ -1,0 +1,359 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>메모리 · LangGraph 설계</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+  :root{
+    --ground:#eef1f5; --surface:#ffffff; --surface-2:#f6f8fb;
+    --ink:#141b28; --ink-soft:#43505f; --ink-faint:#7c8798;
+    --line:#d8dee7; --line-strong:#c2cad6;
+    --blueprint:#2b4a8c; --blueprint-soft:#e6ecf7;
+    --warn:#a35a1a; --warn-bg:#fbeede; --warn-line:#e9c79b;
+    --good:#0d6e63; --good-bg:#dcf1ee; --good-line:#9cd3ca;
+    --violet:#6d4aa8; --violet-soft:#ece5f7;
+    --shadow:0 1px 2px rgba(20,27,40,.05),0 8px 24px -12px rgba(20,27,40,.18);
+  }
+  @media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+    --ground:#0c1119; --surface:#141b28; --surface-2:#0f1522;
+    --ink:#e7ecf4; --ink-soft:#aab6c6; --ink-faint:#6f7c8f;
+    --line:#26303f; --line-strong:#33404f;
+    --blueprint:#7ea0e0; --blueprint-soft:#1a2436;
+    --warn:#e0a35f; --warn-bg:#2c2013; --warn-line:#5a4224;
+    --good:#5ec8b8; --good-bg:#10261f; --good-line:#2c4f45;
+    --violet:#b499e0; --violet-soft:#1e1830;
+    --shadow:0 1px 2px rgba(0,0,0,.3),0 10px 28px -14px rgba(0,0,0,.6);
+  }}
+  :root[data-theme="dark"]{
+    --ground:#0c1119; --surface:#141b28; --surface-2:#0f1522;
+    --ink:#e7ecf4; --ink-soft:#aab6c6; --ink-faint:#6f7c8f;
+    --line:#26303f; --line-strong:#33404f;
+    --blueprint:#7ea0e0; --blueprint-soft:#1a2436;
+    --warn:#e0a35f; --warn-bg:#2c2013; --warn-line:#5a4224;
+    --good:#5ec8b8; --good-bg:#10261f; --good-line:#2c4f45;
+    --violet:#b499e0; --violet-soft:#1e1830;
+    --shadow:0 1px 2px rgba(0,0,0,.3),0 10px 28px -14px rgba(0,0,0,.6);
+  }
+
+  *{box-sizing:border-box}
+  body{background:var(--ground);color:var(--ink);
+    font-family:"IBM Plex Sans",system-ui,sans-serif;line-height:1.68;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:840px;margin:0 auto;padding:48px 24px 90px}
+  code{font-family:"IBM Plex Mono",monospace;font-size:.85em;background:var(--surface-2);
+    border:1px solid var(--line);border-radius:5px;padding:1px 5px;color:var(--ink);white-space:nowrap}
+
+  .eyebrow{font-family:"IBM Plex Mono",monospace;font-size:12px;letter-spacing:.14em;
+    text-transform:uppercase;color:var(--violet);font-weight:600}
+  h1{font-size:clamp(27px,4.4vw,40px);line-height:1.1;margin:.35em 0 .3em;
+    letter-spacing:-.022em;font-weight:700;text-wrap:balance}
+  .lede{color:var(--ink-soft);max-width:60ch;font-size:16.5px;margin:0}
+  .meta{margin-top:16px;font-family:"IBM Plex Mono",monospace;font-size:12px;color:var(--ink-faint);
+    display:flex;flex-wrap:wrap;gap:6px 18px}
+
+  h2.sec{font-size:13px;font-family:"IBM Plex Mono",monospace;letter-spacing:.1em;text-transform:uppercase;
+    color:var(--violet);font-weight:600;margin:40px 0 14px;display:flex;align-items:center;gap:9px}
+  h2.sec::before{content:"";width:8px;height:8px;border-radius:2px;background:var(--violet)}
+  h2.sec .n{color:var(--ink-faint)}
+  p.para{font-size:15.5px;color:var(--ink-soft);margin:0 0 14px;max-width:64ch}
+  p.para b{color:var(--ink);font-weight:600}
+
+  .thesis{margin:20px 0 4px;background:var(--violet-soft);border:1px solid var(--line-strong);
+    border-left:3px solid var(--violet);border-radius:10px;padding:16px 18px;font-size:15.5px;color:var(--ink)}
+  .thesis b{color:var(--violet);font-weight:700}
+
+  figure{margin:24px 0 6px;background:var(--surface);border:1px solid var(--line);
+    border-radius:14px;padding:22px 20px 12px;box-shadow:var(--shadow);overflow-x:auto}
+  figure svg{display:block;max-width:100%;height:auto;min-width:600px;margin:0 auto;color:var(--ink)}
+  figcaption{font-size:13px;color:var(--ink-soft);margin-top:14px;text-align:center;text-wrap:balance;max-width:72ch;margin-left:auto;margin-right:auto}
+  figcaption b{color:var(--ink)}
+  svg .node{fill:var(--surface-2);stroke:var(--line-strong);stroke-width:1.5}
+  svg .acc{fill:var(--blueprint-soft);stroke:var(--blueprint);stroke-width:2}
+  svg .vio{fill:var(--violet-soft);stroke:var(--violet);stroke-width:2}
+  svg .db{fill:var(--good-bg);stroke:var(--good);stroke-width:2}
+  svg .warnb{fill:var(--warn-bg);stroke:var(--warn-line);stroke-width:1.5}
+  svg .lab{fill:var(--ink);font-family:"IBM Plex Sans",sans-serif;font-size:13px;font-weight:600}
+  svg .labs{fill:var(--ink);font-family:"IBM Plex Sans",sans-serif;font-size:12px;font-weight:600}
+  svg .mono{fill:var(--ink-soft);font-family:"IBM Plex Mono",monospace;font-size:10.5px}
+  svg .edge{stroke:var(--ink-faint);stroke-width:1.6;fill:none}
+  svg .edgelab{fill:var(--ink-faint);font-family:"IBM Plex Mono",monospace;font-size:10px}
+  svg .scopelab{fill:var(--violet);font-family:"IBM Plex Mono",monospace;font-size:11px;font-weight:600}
+  svg .dashv{stroke:var(--violet);stroke-width:1.6;fill:none;stroke-dasharray:5 4}
+
+  .cmps{display:flex;flex-direction:column;gap:13px;margin:6px 0}
+  .cmp{display:flex;flex-direction:column;gap:3px}
+  .cmp .cn{font-family:"IBM Plex Mono",monospace;font-size:13px;font-weight:600;color:var(--ink);display:flex;align-items:center;gap:7px;flex-wrap:wrap}
+  .cmp .cn .new{font-size:9.5px;color:var(--good);border:1px solid var(--good-line);background:var(--good-bg);border-radius:4px;padding:0 4px;font-weight:600}
+  .cmp .cn .lg{font-size:9.5px;color:var(--violet);border:1px solid var(--violet);background:var(--violet-soft);border-radius:4px;padding:0 4px;font-weight:600}
+  .cmp p{margin:0;font-size:13.5px;color:var(--ink-soft)}
+  .cmp p b{color:var(--ink);font-weight:600}
+
+  .tablewrap{overflow-x:auto;border:1px solid var(--line);border-radius:10px;margin:6px 0}
+  table{border-collapse:collapse;width:100%;font-size:13px;min-width:520px}
+  th,td{text-align:left;padding:9px 12px;border-bottom:1px solid var(--line);vertical-align:top}
+  th{font-size:11px;letter-spacing:.05em;text-transform:uppercase;color:var(--ink-faint);font-weight:600;background:var(--surface-2)}
+  tr:last-child td{border-bottom:0}
+  td.mono,th.mono{font-family:"IBM Plex Mono",monospace;font-size:12px;white-space:nowrap}
+  td .why{color:var(--ink-faint);font-size:12px}
+  td.cur{color:var(--warn)}
+  td.tgt{color:var(--good)}
+
+  ol.seq{margin:0;padding:0;list-style:none;counter-reset:s;display:flex;flex-direction:column;gap:0}
+  ol.seq li{counter-increment:s;position:relative;padding:9px 0 11px 40px;font-size:13.5px;color:var(--ink-soft);
+    border-left:2px solid var(--line);margin-left:12px}
+  ol.seq li::before{content:counter(s);position:absolute;left:-13px;top:8px;width:24px;height:24px;
+    background:var(--surface);border:1.5px solid var(--violet);color:var(--violet);border-radius:50%;
+    font-family:"IBM Plex Mono",monospace;font-size:11px;font-weight:600;display:flex;align-items:center;justify-content:center}
+  ol.seq li:last-child{border-left-color:transparent}
+  ol.seq li b{color:var(--ink);font-weight:600}
+  ol.seq li .who{font-family:"IBM Plex Mono",monospace;font-size:12px;color:var(--violet);font-weight:600}
+
+  ul.rules{margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:11px}
+  ul.rules li{position:relative;padding-left:24px;font-size:13.5px;color:var(--ink-soft)}
+  ul.rules li::before{content:"";position:absolute;left:3px;top:8px;width:8px;height:8px;border-radius:2px;background:var(--good);transform:rotate(45deg)}
+  ul.rules li.warn::before{background:var(--warn)}
+  ul.rules li b{color:var(--ink);font-weight:600}
+  ul.rules li .tag{font-family:"IBM Plex Mono",monospace;font-size:10px;font-weight:600;padding:1px 6px;border-radius:20px;margin-right:7px;white-space:nowrap}
+  ul.rules li.warn .tag{background:var(--warn-bg);color:var(--warn);border:1px solid var(--warn-line)}
+  ul.rules li.rule .tag{background:var(--violet-soft);color:var(--violet);border:1px solid var(--line-strong)}
+
+  .callout{margin:20px 0 6px;display:flex;gap:14px;align-items:flex-start;background:var(--surface-2);
+    border:1px solid var(--line);border-left:3px solid var(--violet);border-radius:10px;padding:15px 17px}
+  .callout .ic{font-family:"IBM Plex Mono",monospace;font-weight:700;color:var(--violet);border:1.5px solid var(--violet);
+    border-radius:8px;width:30px;height:30px;flex:none;display:flex;align-items:center;justify-content:center;font-size:14px}
+  .callout p{margin:0;font-size:13.5px;color:var(--ink-soft)}
+  .callout b{color:var(--ink)}
+
+  .closing{margin-top:38px;background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:22px 24px;box-shadow:var(--shadow)}
+  .closing p{font-size:15px;color:var(--ink-soft);margin:0}
+  .closing .big{font-size:16px;color:var(--ink);margin-top:12px}
+  .closing .big b{color:var(--violet)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="eyebrow">LaunchPilot · 심화 설계 · ⑤ 메모리</div>
+    <h1>대화를 기억하는 에이전트: LangGraph 메모리 설계</h1>
+    <p class="lede">무상태 파이프라인을 "이어지는 대화"로 바꾸기 위한, LangGraph 네이티브 메모리 위에 테넌트 격리와 비용 통제를 얹는 심화 설계.</p>
+    <div class="meta"><span>기준 코드: analysis/graph.py · AnalysisGraph</span><span>스택: LangGraph · PostgreSQL 17</span></div>
+  </header>
+
+  <!-- INTRO -->
+  <h2 class="sec"><span class="n">§0</span> 무엇을 풀려는가</h2>
+  <p class="para">지금 에이전트는 매 질문을 <b>백지에서</b> 답한다. 코드로 보면 <code>AnalysisGraph.invoke</code>가 매번 <code>{"messages": [HumanMessage(질문)]}</code> 하나만 그래프에 넣고, <code>graph.compile()</code>에는 아무 저장 장치도 붙어 있지 않기 때문이다. 그래서 사용자가 "그럼 그 캠페인 예산은?"처럼 <b>앞 대화를 이어</b> 물으면, 에이전트는 "그 캠페인"이 무엇인지 모른다.</p>
+  <p class="para">이 문서는 그 대화를 <b>기억</b>하게 만든다. 핵심은 두 가지다 — 첫째, LangGraph가 원래 제공하는 메모리 장치(체크포인터·스토어)를 <b>정확히 어디에 끼우는지</b>. 둘째, 그 기억이 커질 때 <b>비용이 폭발하지 않게</b>, 그리고 <b>A사 대화가 B사에 새지 않게</b> 통제하는 것. LangGraph는 기억할 <b>수단</b>을 주지만, "무엇을·얼마나·누구 것만" 기억할지는 우리가 설계해야 한다.</p>
+  <div class="thesis">이 문서의 관점: <b>LangGraph 체크포인터로 "이어지는 대화"를 얻되, 그 위에 요약(compaction)으로 비용을, RLS로 테넌트를 통제한다.</b></div>
+
+  <!-- §1 memory model -->
+  <h2 class="sec"><span class="n">§1</span> 먼저, LangGraph의 메모리 3층 모델</h2>
+  <p class="para">LangGraph에서 "메모리"는 한 덩어리가 아니라 <b>수명(범위)이 다른 세 겹</b>이다. 이 셋을 구분하는 것이 설계의 출발점이다.</p>
+
+  <figure>
+    <svg viewBox="0 0 860 250" role="img" aria-label="LangGraph 메모리는 세 겹의 동심원이다. 가장 안쪽은 한 번의 실행 동안만 사는 State, 그 바깥은 같은 대화의 턴 사이를 잇는 체크포인터, 가장 바깥은 대화를 넘어 지속되는 스토어다">
+      <rect class="vio" x="34" y="20" width="792" height="210" rx="14" style="fill:var(--violet-soft);stroke:var(--violet)"/>
+      <text class="scopelab" x="52" y="42">장기 기억 · Store (BaseStore)</text>
+      <text class="mono" x="52" y="58">대화를 넘어 — 사용자·회사 단위로 지속</text>
+
+      <rect class="node" x="118" y="72" width="624" height="150" rx="12" style="fill:var(--blueprint-soft);stroke:var(--blueprint)"/>
+      <text class="scopelab" x="136" y="94" fill="var(--blueprint)">단기 기억 · Checkpointer + thread_id</text>
+      <text class="mono" x="136" y="110" fill="var(--blueprint)">같은 대화의 턴과 턴 사이</text>
+
+      <rect class="node" x="210" y="128" width="440" height="78" rx="10"/>
+      <text class="labs" x="430" y="160" text-anchor="middle">작업 기억 · State (MessagesState)</text>
+      <text class="mono" x="430" y="180" text-anchor="middle">한 번의 invoke 실행 동안만</text>
+    </svg>
+    <figcaption><b>범위가 서로를 감싼다.</b> 가장 안쪽 <b>State</b>는 한 번의 실행 안에서만 살고(지금 우리가 쓰는 유일한 층), <b>체크포인터</b>는 같은 대화의 턴들을 잇고, <b>스토어</b>는 대화를 넘어 사용자·회사의 사실을 오래 보관한다. 지금 코드에는 <b>가장 안쪽 한 겹만</b> 있다.</figcaption>
+  </figure>
+
+  <div class="tablewrap"><table>
+    <tr><th>층</th><th>LangGraph 구성</th><th>수명(범위)</th><th>무엇을 담나</th></tr>
+    <tr><td class="mono">작업 기억</td><td class="mono">State · MessagesState</td><td>1회 실행</td><td>이번 턴의 메시지·툴 호출·중간 추론</td></tr>
+    <tr><td class="mono">단기 기억</td><td class="mono">Checkpointer + thread_id</td><td>1개 대화</td><td>지난 턴들의 메시지(대화 맥락)</td></tr>
+    <tr><td class="mono">장기 기억</td><td class="mono">Store (BaseStore)</td><td>사용자·회사</td><td>대화를 넘는 사실 — 선호·반복 컨텍스트</td></tr>
+  </table></div>
+  <p class="para" style="margin-top:14px">이 문서의 중심은 <b>단기 기억(체크포인터)</b> — "대화가 이어지는 감각"이 여기서 나온다. 장기 기억(스토어)은 뒤에서 짧게 다룬다.</p>
+
+  <!-- §2 how to attach -->
+  <h2 class="sec"><span class="n">§2</span> 우리 그래프에 어떻게 끼우나 — 현재 → 목표</h2>
+  <p class="para">기존 <code>AnalysisGraph</code>의 토폴로지(<code>router → agent ⇄ tools → reranker</code>)는 <b>그대로 둔다</b>. 바꾸는 것은 딱 두 곳 — 그래프를 <b>컴파일할 때 체크포인터를 붙이고</b>, <b>실행할 때 <code>thread_id</code>를 넘기는</b> 것. 이 둘만으로 LangGraph가 대화 상태를 자동으로 이어 준다.</p>
+
+  <figure>
+    <svg viewBox="0 0 860 250" role="img" aria-label="현재는 질문 하나만 넣고 상태 없이 매번 백지에서 답하지만, 목표는 thread_id를 넘기고 체크포인터를 붙여 같은 대화의 이전 상태를 자동 복원한다">
+      <defs><marker id="m2" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto"><polygon points="0 0,8 3,0 6" fill="var(--ink-faint)"/></marker>
+        <marker id="m2v" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto"><polygon points="0 0,8 3,0 6" fill="var(--violet)"/></marker></defs>
+      <text class="mono" x="210" y="24" text-anchor="middle" fill="var(--warn)" style="font-weight:600">현재 · 무상태</text>
+      <line x1="430" y1="14" x2="430" y2="236" stroke="var(--line)" stroke-width="1.3" stroke-dasharray="4 4"/>
+      <text class="mono" x="650" y="24" text-anchor="middle" fill="var(--good)" style="font-weight:600">목표 · 대화 지속</text>
+
+      <rect class="node" x="24" y="70" width="94" height="46" rx="8"/><text class="labs" x="71" y="98" text-anchor="middle">질문</text>
+      <rect class="node" x="150" y="60" width="140" height="66" rx="10"/><text class="labs" x="220" y="88" text-anchor="middle">StateGraph</text><text class="mono" x="220" y="106" text-anchor="middle">compile()</text>
+      <rect class="node" x="322" y="70" width="86" height="46" rx="8"/><text class="labs" x="365" y="98" text-anchor="middle">답변</text>
+      <line class="edge" x1="118" y1="93" x2="146" y2="93" marker-end="url(#m2)"/>
+      <line class="edge" x1="290" y1="93" x2="318" y2="93" marker-end="url(#m2)"/>
+      <text class="mono" x="220" y="150" text-anchor="middle" fill="var(--warn)">매 요청 백지 · 상태 없음</text>
+
+      <rect class="node" x="452" y="70" width="120" height="46" rx="8"/><text class="labs" x="512" y="90" text-anchor="middle">질문</text><text class="mono" x="512" y="107" text-anchor="middle">+ thread_id</text>
+      <rect class="vio" x="606" y="60" width="140" height="66" rx="10"/><text class="labs" x="676" y="88" text-anchor="middle">StateGraph</text><text class="mono" x="676" y="106" text-anchor="middle">compile(checkpointer)</text>
+      <rect class="node" x="778" y="70" width="70" height="46" rx="8"/><text class="labs" x="813" y="98" text-anchor="middle">답변</text>
+      <line class="edge" x1="572" y1="93" x2="602" y2="93" marker-end="url(#m2)"/>
+      <line class="edge" x1="746" y1="93" x2="774" y2="93" marker-end="url(#m2)"/>
+      <rect class="db" x="606" y="168" width="140" height="52" rx="10"/><text class="labs" x="676" y="190" text-anchor="middle">Checkpointer</text><text class="mono" x="676" y="208" text-anchor="middle">PostgresSaver</text>
+      <path class="dashv" d="M676 126 L676 164" marker-end="url(#m2v)"/>
+      <path class="dashv" d="M712 164 L712 128" marker-end="url(#m2v)"/>
+      <text class="edgelab" x="600" y="150" text-anchor="end" fill="var(--violet)">이전 상태 복원</text>
+      <text class="edgelab" x="752" y="150" text-anchor="start" fill="var(--violet)">새 상태 저장</text>
+    </svg>
+    <figcaption><b>바뀌는 건 두 곳뿐.</b> <code>compile()</code>에 <b>체크포인터</b>를 붙이고, <code>invoke</code>에 <b><code>thread_id</code></b>(= <code>conversation_id</code>)를 넘기면, LangGraph가 그 대화의 이전 <code>MessagesState</code>를 자동으로 복원하고 실행 후 다시 저장한다.</figcaption>
+  </figure>
+
+  <div class="tablewrap"><table>
+    <tr><th>변경 지점</th><th>현재</th><th>목표</th></tr>
+    <tr><td class="mono">AnalysisGraph._compile</td><td class="cur mono">graph.compile()</td><td class="tgt mono">graph.compile(checkpointer=PostgresSaver) + compaction 노드</td></tr>
+    <tr><td class="mono">AnalysisGraph.invoke</td><td class="cur mono">invoke({"messages":[Human]})</td><td class="tgt mono">invoke({"messages":[Human]}, config={"configurable":{"thread_id": conversation_id}})</td></tr>
+    <tr><td class="mono">CampaignAgent.answer</td><td class="cur mono">answer(question)</td><td class="tgt mono">answer(conversation_id, question) → 실행 후 turns 저장</td></tr>
+    <tr><td class="mono">CampaignAgentFactory.create</td><td class="cur">체크포인터·저장소 없음</td><td class="tgt">checkpointer · ConversationStore · SummaryStore 주입</td></tr>
+    <tr><td class="mono">신규 스키마</td><td class="cur">—</td><td class="tgt">turns · conversation_summaries (+RLS), (선택) Store 네임스페이스</td></tr>
+  </table></div>
+
+  <div class="callout"><div class="ic">!</div><div><p><b>왜 체크포인터만으로 끝내지 않나.</b> 체크포인터는 <b>작업 루프 전체</b>(agent⇄tools의 원시 툴 출력·리랭커 트래픽까지)를 저장한다. 다음 턴에 그걸 통째로 다시 넣으면 토큰이 폭발한다. 그래서 <b>§4 요약(compaction)</b>으로 상태를 접고, 제품·감사용 <b>진실 원본은 별도 <code>turns</code> 테이블</b>(RLS)에 따로 둔다.</p></div></div>
+
+  <!-- §3 data model -->
+  <h2 class="sec"><span class="n">§3</span> 데이터 모델 — 무엇을 어디에 저장하나</h2>
+  <p class="para">저장소는 성격이 다른 <b>세 부류</b>로 나뉜다: LangGraph가 <b>스스로 관리</b>하는 체크포인트 테이블(런타임), 우리가 만드는 <b>제품 진실 원본</b>(turns·summaries), 그리고 <b>장기 사실</b>(Store). 진실 원본과 런타임 캐시를 섞지 않는 것이 핵심이다.</p>
+
+  <div class="tablewrap"><table>
+    <tr><th>테이블</th><th>주요 컬럼</th><th>누가 관리</th><th>역할 / 이유</th></tr>
+    <tr><td class="mono">conversations<br><span class="why">(기존)</span></td><td class="mono">id · campaign_id · title · created_at</td><td>우리</td><td class="why">대화 단위. <code>id</code>가 곧 <code>thread_id</code>가 된다.</td></tr>
+    <tr><td class="mono">turns <span style="color:var(--good)">NEW</span></td><td class="mono">id · conversation_id · <b>workspace_id</b> · role · content · tool_calls(JSONB) · token_count · created_at</td><td>우리</td><td class="why"><b>제품 진실 원본</b> — 화면 표시·감사·다음 턴 재구성. RLS 적용.</td></tr>
+    <tr><td class="mono">conversation_summaries <span style="color:var(--good)">NEW</span></td><td class="mono">conversation_id · <b>workspace_id</b> · summary · upto_seq · updated_at</td><td>우리</td><td class="why">오래된 턴을 접은 <b>러닝 요약</b>. 어디까지 요약했는지(<code>upto_seq</code>) 기록.</td></tr>
+    <tr><td class="mono">checkpoints* <span style="color:var(--violet)">LG</span></td><td class="mono">thread_id · checkpoint · (state blob)</td><td>LangGraph</td><td class="why">런타임 상태. <code>PostgresSaver.setup()</code>이 자동 생성. <b>캐시로 취급</b>.</td></tr>
+    <tr><td class="mono">store* <span style="color:var(--violet)">LG</span></td><td class="mono">namespace · key · value(JSONB)</td><td>LangGraph</td><td class="why">장기 사실. <code>namespace=(workspace_id, …)</code>로 회사 격리.</td></tr>
+  </table></div>
+  <p class="para" style="margin-top:12px"><code>* </code> 표시는 LangGraph가 <code>.setup()</code>으로 만들고 관리하는 테이블 — 우리는 스키마를 손대지 않고 <b>런타임 캐시</b>로 다룬다.</p>
+
+  <!-- §4 turn flow -->
+  <h2 class="sec"><span class="n">§4</span> 한 턴의 처리 흐름 (요약 포함)</h2>
+  <p class="para">한 번의 질문이 들어와 답이 나가기까지, 기억을 <b>복원 → 예산 맞춰 접기 → 추론 → 저장</b>의 순서로 다룬다. 기존 <code>agent ⇄ tools</code> 루프는 4단계 안에서 그대로 돈다.</p>
+
+  <figure>
+    <svg viewBox="0 0 860 240" role="img" aria-label="요청이 오면 스코프를 인증하고 체크포인터가 이전 상태를 복원한 뒤, 예산 초과분을 요약으로 접고, agent와 tools 루프가 추론해 답을 내며, 그 발언을 turns 테이블과 요약에 저장한다">
+      <defs><marker id="m4" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto"><polygon points="0 0,8 3,0 6" fill="var(--ink-faint)"/></marker>
+        <marker id="m4g" markerWidth="9" markerHeight="9" refX="7" refY="3" orient="auto"><polygon points="0 0,8 3,0 6" fill="var(--good)"/></marker></defs>
+      <rect class="node" x="18" y="86" width="96" height="52" rx="9"/><text class="labs" x="66" y="108" text-anchor="middle">요청</text><text class="mono" x="66" y="125" text-anchor="middle">conv_id+질문</text>
+      <rect class="vio" x="140" y="82" width="120" height="60" rx="10"/><text class="labs" x="200" y="107" text-anchor="middle">체크포인터</text><text class="mono" x="200" y="125" text-anchor="middle">이전 상태 복원</text>
+      <rect class="vio" x="286" y="82" width="128" height="60" rx="10"/><text class="labs" x="350" y="107" text-anchor="middle">Compaction</text><text class="mono" x="350" y="125" text-anchor="middle">예산 초과분 요약</text>
+      <rect class="acc" x="440" y="76" width="150" height="72" rx="10"/><text class="labs" x="515" y="100" text-anchor="middle">agent ⇄ tools</text><text class="mono" x="515" y="118" text-anchor="middle">기존 루프</text><text class="mono" x="515" y="133" text-anchor="middle">(router·reranker)</text>
+      <rect class="node" x="620" y="86" width="90" height="52" rx="9"/><text class="labs" x="665" y="116" text-anchor="middle">답변</text>
+
+      <line class="edge" x1="114" y1="112" x2="136" y2="112" marker-end="url(#m4)"/>
+      <line class="edge" x1="260" y1="112" x2="282" y2="112" marker-end="url(#m4)"/>
+      <line class="edge" x1="414" y1="112" x2="436" y2="112" marker-end="url(#m4)"/>
+      <line class="edge" x1="590" y1="112" x2="616" y2="112" marker-end="url(#m4)"/>
+
+      <rect class="db" x="286" y="184" width="150" height="44" rx="9"/><text class="labs" x="361" y="206" text-anchor="middle">summaries</text><text class="mono" x="361" y="221" text-anchor="middle">요약 갱신 · RLS</text>
+      <rect class="db" x="470" y="184" width="170" height="44" rx="9"/><text class="labs" x="555" y="206" text-anchor="middle">turns 저장</text><text class="mono" x="555" y="221" text-anchor="middle">진실 원본 · RLS</text>
+      <path class="edge" d="M350 142 L358 182" marker-end="url(#m4g)" stroke="var(--good)"/>
+      <path class="edge" d="M540 148 C540 168 550 172 555 182" marker-end="url(#m4g)" stroke="var(--good)"/>
+      <text class="edgelab" x="628" y="170" text-anchor="middle" fill="var(--good)">발언 기록</text>
+    </svg>
+    <figcaption><b>복원 → 접기 → 추론 → 저장.</b> 체크포인터가 이전 맥락을 되살리고, Compaction이 예산을 넘긴 옛 메시지를 요약으로 접는다. 그 위에서 기존 <code>agent⇄tools</code> 루프가 답을 내고, 오간 발언은 <code>turns</code>(진실 원본)와 <code>summaries</code>에 <b>회사 격리(RLS) 안에서</b> 저장된다.</figcaption>
+  </figure>
+
+  <ol class="seq">
+    <li>요청이 <code>conversation_id</code>·질문을 들고 오면, 시스템은 <b>대화→캠페인→회사</b> 체인으로 스코프를 인증해 이 대화가 요청자의 회사 것임을 확정한다.</li>
+    <li><span class="who">체크포인터</span>가 <code>thread_id=conversation_id</code>로 <b>이전 턴의 상태를 자동 복원</b>해, 에이전트가 앞 맥락 위에서 답하도록 한다.</li>
+    <li><span class="who">Compaction 노드</span>가 상태의 메시지가 <b>토큰 예산을 넘겼는지 확인</b>하고, 넘겼으면 오래된 메시지를 요약으로 접어(<code>RemoveMessage</code>로 제거) 창을 일정하게 유지한다.</li>
+    <li>기존 <span class="who">agent ⇄ tools</span> 루프가 <b>복원된 맥락 + 요약 + 새 질문</b>으로 추론해 답과 근거를 만든다.</li>
+    <li><span class="who">ConversationStore</span>가 사용자·assistant 발언을 <code>turns</code>에 <b>회사 표식과 함께 append</b>하고, 접힌 부분이 있으면 <span class="who">SummaryStore</span>가 요약을 갱신한다 — 다음 턴이 이어질 근거가 남는다.</li>
+  </ol>
+
+  <!-- §5 compaction -->
+  <h2 class="sec"><span class="n">§5</span> 요약(Compaction) — 대화가 길어질 때</h2>
+  <p class="para">대화가 길어질수록 매 턴 전체 이력을 LLM에 넣는 비용·지연·환각이 커진다. 그래서 <b>최근 몇 턴은 원문 그대로, 그보다 오래된 것은 요약 한 덩어리로</b> 접는다 — "슬라이딩 윈도우 + 러닝 요약" 전략.</p>
+
+  <figure>
+    <svg viewBox="0 0 860 244" role="img" aria-label="접기 전에는 시스템 메시지 뒤로 여러 턴과 원시 툴 출력이 쌓여 토큰 예산을 넘지만, 접은 뒤에는 옛 턴이 요약 한 덩어리로 압축되고 최근 몇 턴만 원문으로 남아 예산 안에 든다">
+      <defs><marker id="m5" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto"><polygon points="0 0,9 3,0 6" fill="var(--violet)"/></marker></defs>
+      <text class="mono" x="150" y="26" text-anchor="middle" fill="var(--warn)" style="font-weight:600">접기 전 · 예산 초과</text>
+      <text class="mono" x="640" y="26" text-anchor="middle" fill="var(--good)" style="font-weight:600">접은 후 · 예산 이내</text>
+
+      <!-- before stack -->
+      <rect class="node" x="60" y="40" width="180" height="24" rx="5"/><text class="mono" x="150" y="56" text-anchor="middle">system</text>
+      <rect class="warnb" x="60" y="68" width="180" height="24" rx="5"/><text class="mono" x="150" y="84" text-anchor="middle">turn 1 · user/assistant</text>
+      <rect class="warnb" x="60" y="96" width="180" height="24" rx="5"/><text class="mono" x="150" y="112" text-anchor="middle">tool 출력 (대용량)</text>
+      <rect class="warnb" x="60" y="124" width="180" height="24" rx="5"/><text class="mono" x="150" y="140" text-anchor="middle">turn 2 · user/assistant</text>
+      <rect class="warnb" x="60" y="152" width="180" height="24" rx="5"/><text class="mono" x="150" y="168" text-anchor="middle">tool 출력 (대용량)</text>
+      <rect class="node" x="60" y="180" width="180" height="24" rx="5"/><text class="mono" x="150" y="196" text-anchor="middle">turn 3 · 최근</text>
+      <line x1="50" y1="210" x2="250" y2="210" stroke="var(--warn)" stroke-width="1.4" stroke-dasharray="4 3"/>
+      <text class="edgelab" x="150" y="226" text-anchor="middle" fill="var(--warn)">토큰 예산선 초과</text>
+
+      <line class="dashv" x1="270" y1="120" x2="360" y2="120" marker-end="url(#m5)" stroke-width="2"/>
+      <text class="scopelab" x="315" y="110" text-anchor="middle">compaction</text>
+
+      <!-- after stack -->
+      <rect class="node" x="550" y="70" width="180" height="24" rx="5"/><text class="mono" x="640" y="86" text-anchor="middle">system</text>
+      <rect class="vio" x="550" y="98" width="180" height="30" rx="5"/><text class="mono" x="640" y="117" text-anchor="middle" fill="var(--violet)">요약 (turn 1–2 압축)</text>
+      <rect class="node" x="550" y="132" width="180" height="24" rx="5"/><text class="mono" x="640" y="148" text-anchor="middle">turn 3 · 최근 원문</text>
+      <rect class="db" x="550" y="160" width="180" height="24" rx="5"/><text class="mono" x="640" y="176" text-anchor="middle">새 질문</text>
+      <line x1="540" y1="196" x2="740" y2="196" stroke="var(--good)" stroke-width="1.4" stroke-dasharray="4 3"/>
+      <text class="edgelab" x="640" y="212" text-anchor="middle" fill="var(--good)">예산 이내</text>
+    </svg>
+    <figcaption><b>오래된 것은 접고, 최근 것은 남긴다.</b> 접기 전에는 원시 툴 출력까지 쌓여 예산을 넘지만, Compaction이 옛 턴을 <b>요약 한 덩어리로 압축</b>하고 최근 몇 턴만 원문으로 남겨 창을 일정하게 유지한다. 요약된 원문 턴도 <code>turns</code>에는 <b>지우지 않고 보존</b>한다.</figcaption>
+  </figure>
+
+  <ul class="rules">
+    <li class="rule"><span class="tag">언제</span> 상태 메시지가 <b>토큰/턴 임계</b>를 넘으면 접는다 — 매 턴이 아니라 넘칠 때만, 불필요한 요약 호출을 아낀다.</li>
+    <li class="rule"><span class="tag">무엇을</span> 오래된 턴은 요약으로, <b>최근 N턴은 원문 유지</b> — 방금 나눈 맥락은 손실 없이, 먼 맥락은 압축해 비용을 잡는다.</li>
+    <li class="rule"><span class="tag">어떻게</span> LangGraph의 <code>RemoveMessage</code>로 상태에서 옛 메시지를 걷어내고 요약 메시지로 대체한다 — 상태는 가벼워지고 의미는 남는다.</li>
+    <li class="warn"><span class="tag">주의</span> 지난 턴의 <b>원시 툴 출력은 다음 턴에 재주입하지 않는다</b>(요약으로 대체) — 이걸 안 하면 토큰이 가장 빨리 터진다.</li>
+    <li class="warn"><span class="tag">주의</span> 요약은 <b>손실 압축</b>이므로 원문 <code>turns</code>는 지우지 않는다 — 이력·감사·재구성의 근거를 보존한다.</li>
+  </ul>
+
+  <!-- §6 isolation -->
+  <h2 class="sec"><span class="n">§6</span> 기억의 테넌트 격리 — 여기서 뚫리면 헛수고</h2>
+  <p class="para">앞선 멀티테넌시 설계의 배턴(<code>workspace_id</code>)은 기억 계층에서도 끊기면 안 된다. 애써 세운 격리가 <b>메모리에서 새면</b> A사 대화가 B사 회상에 섞인다.</p>
+  <ul class="rules">
+    <li class="rule"><span class="tag">규칙</span> <code>turns</code>·<code>conversation_summaries</code>에 <b><code>workspace_id</code> 컬럼 + RLS</b>를 걸어, 각 회사가 자기 대화만 읽고 쓰게 DB가 강제한다.</li>
+    <li class="rule"><span class="tag">규칙</span> <code>thread_id = conversation_id</code>이고 대화는 <b>캠페인→회사에 묶이므로</b>, 스코프 인증을 통과한 대화의 thread만 실행에 쓴다.</li>
+    <li class="rule"><span class="tag">규칙</span> 장기 스토어는 <code>namespace=(workspace_id, …)</code>로 <b>회사를 네임스페이스에 박아</b> 교차 조회를 원천 차단한다.</li>
+    <li class="warn"><span class="tag">주의</span> 체크포인터 테이블은 LangGraph 관리라 <code>workspace_id</code> 컬럼이 없다 — 그래서 <b>진실 원본이 아닌 캐시</b>로만 다루고, 격리는 "인증된 대화의 thread만 접근"으로 지킨다. 민감하면 대화별 체크포인터 분리·주기적 정리를 둔다.</li>
+  </ul>
+
+  <!-- §7 components -->
+  <h2 class="sec"><span class="n">§7</span> 컴포넌트와 책임</h2>
+  <div class="cmps">
+    <div class="cmp"><span class="cn">CheckpointerProvider <span class="new">NEW</span> <span class="lg">LangGraph</span></span>
+      <p><b>상태 지속 장치</b>는 대화가 턴을 넘어 이어지게 하려고, <code>PostgresSaver</code>를 만들어 그래프 <code>compile</code>에 붙인다. 그 결과 <code>thread_id</code>만 넘기면 이전 <code>MessagesState</code>가 자동으로 복원·저장된다.</p></div>
+    <div class="cmp"><span class="cn">CompactionNode <span class="new">NEW</span></span>
+      <p><b>요약 노드</b>는 긴 대화의 토큰 비용을 잡으려고, 상태가 예산을 넘으면 오래된 메시지를 요약으로 접고 <code>RemoveMessage</code>로 걷어낸다. 그래서 대화가 길어져도 매 턴 입력 크기가 일정하게 유지된다.</p></div>
+    <div class="cmp"><span class="cn">ConversationStore <span class="new">NEW</span></span>
+      <p><b>대화 저장소</b>는 화면 표시·감사·다음 턴 재구성의 근거를 남기려고, 오간 발언을 <b>회사 표식과 함께</b> <code>turns</code>에 append하고 최근 것을 되읽어준다. RLS 아래 있어 회사는 자기 대화만 본다.</p></div>
+    <div class="cmp"><span class="cn">SummaryStore / Summarizer <span class="new">NEW</span></span>
+      <p><b>요약 저장·생성기</b>는 접힌 옛 맥락을 잃지 않으려고, 러닝 요약을 만들어 <code>conversation_summaries</code>에 보관하고 "어디까지 요약했는지"를 기록한다. 다음 복원 때 이 요약이 먼 맥락을 대신한다.</p></div>
+    <div class="cmp"><span class="cn">LongTermStore <span class="new">NEW</span> <span class="lg">LangGraph</span></span>
+      <p><b>장기 기억 스토어</b>는 대화를 넘어 반복되는 사실(선호·자주 쓰는 캠페인)을 기억하려고, <code>BaseStore</code>에 <code>namespace=(workspace_id,…)</code>로 담는다. 그 결과 새 대화도 회사의 축적된 맥락 위에서 시작할 수 있다.</p></div>
+  </div>
+
+  <!-- §8 edge cases -->
+  <h2 class="sec"><span class="n">§8</span> 규칙과 예외 상황</h2>
+  <ul class="rules">
+    <li class="rule"><span class="tag">규칙</span> 진실 원본은 <code>turns</code>, 체크포인터는 런타임 캐시 — 둘이 어긋나면 <b>turns를 기준</b>으로 삼고 캐시는 버릴 수 있다.</li>
+    <li class="warn"><span class="tag">동시성</span> 같은 대화에 두 요청이 겹치면 상태가 꼬일 수 있으므로, <b>대화 단위 직렬화</b>(잠금/큐)로 한 번에 한 턴만 처리한다.</li>
+    <li class="warn"><span class="tag">새 대화</span> <code>thread_id</code>가 없으면 새 대화로 보고 빈 상태에서 시작 — 이전 대화와 절대 섞지 않는다.</li>
+    <li class="warn"><span class="tag">요약 실패</span> 요약 LLM 호출이 실패하면, 접지 않고 <b>안전하게 트림(최근 N턴만)</b>으로 폴백해 대화가 끊기지 않게 한다.</li>
+    <li class="rule"><span class="tag">규칙</span> 도구가 조회할 스코프는 항상 <b>인증된 배턴에서만</b> 나오게 해, 기억을 이어받더라도 남의 회사 데이터가 답에 섞이지 않게 한다.</li>
+  </ul>
+
+  <!-- closing -->
+  <section class="closing">
+    <h2 class="sec" style="margin-top:0"><span class="n">§9</span> 맺음</h2>
+    <p>LangGraph는 기억할 <b>수단</b> 두 가지 — 턴을 잇는 체크포인터, 대화를 넘는 스토어 — 를 준다. 우리 몫은 그 위에 세 가지를 얹는 것이다: <b>요약</b>으로 비용을, <b>RLS</b>로 회사를, <b>turns 진실 원본</b>으로 신뢰를. 기존 <code>agent⇄tools</code> 토폴로지는 그대로 두고, 컴파일과 실행 두 지점만 바꾸면 시작할 수 있다.</p>
+    <p class="big"><b>체크포인터로 이어지는 대화를 얻고, 요약으로 접고, workspace_id로 가른다</b> — 이 셋이 "기억하되 새지 않고 비싸지 않은" 에이전트의 설계 요건이다.</p>
+  </section>
+</div>
+</body>
+</html>
