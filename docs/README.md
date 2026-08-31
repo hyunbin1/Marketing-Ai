@@ -13,6 +13,8 @@ docs/
 │
 ├── architecture/                       # 🏛️ 시스템 설계 및 아키텍처
 │   ├── system-architecture.md          # • LangGraph 4계층 순환 인지 토폴로지 (C3 다이어그램)
+│   ├── multitenancy-design.md          # 🔐 멀티테넌시 6계층 상세 설계 (To-Be)
+│   ├── memory-langgraph-design.md      # 🧠 대화 메모리 · LangGraph 심화 설계 (To-Be)
 │   └── adr/                            # • 아키텍처 결정서 (Architecture Decision Records)
 │       ├── 0001-retrieval-storage-strategy.md
 │       ├── 0002-source-of-truth-database.md
@@ -36,6 +38,8 @@ docs/
 | **🚀 Pull Request** | [docs/pull-request.md](pull-request.md) | V3 데이터셋 및 LangGraph 인-루프 파이프라인 완성 공식 PR 본문 |
 | **📘 마스터 결산서** | [docs/reports/master-engineering-report.md](reports/master-engineering-report.md) | 데이터셋 진화, 3단계 어블레이션, N=20 실측, 지연시간 83.4% 최적화 총결산 |
 | **🏛️ 시스템 아키텍처** | [docs/architecture/system-architecture.md](architecture/system-architecture.md) | 전처리 ➔ 본체 에이전트 ➔ 도구 ➔ 인-루프 리랭커 순환 토폴로지 |
+| **🔐 멀티테넌시 설계** | [docs/architecture/multitenancy-design.md](architecture/multitenancy-design.md) | `workspace_id` 배턴을 6계층에 관통시키는 테넌트 격리 To-Be 설계 (JWT·RLS·감사) |
+| **🧠 메모리 · LangGraph** | [docs/architecture/memory-langgraph-design.md](architecture/memory-langgraph-design.md) | 체크포인터·요약(compaction)·RLS 격리로 "이어지는 대화"를 만드는 심화 설계 |
 | **🧪 데이터셋 진화** | [docs/reports/dataset-evolution.md](reports/dataset-evolution.md) | 30개 캠페인, 1,050개 코퍼스, 150건 무편향 블라인드 질의 설계 |
 | **📝 아키텍처 결정서** | [docs/architecture/adr/](architecture/adr/) | ADR 0001 ~ ADR 0007 핵심 설계 의사결정 기록 |
 
