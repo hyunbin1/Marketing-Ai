@@ -79,7 +79,11 @@ def text_retrieval_service() -> TextRetrievalService:
     return TextRetrievalService(
         PostgresCampaignDocumentRepository(repository_store()),
         ElasticsearchCampaignDocumentSearch(
-            config.elasticsearch_url, config.elasticsearch_index
+            config.elasticsearch_url,
+            config.elasticsearch_index,
+            api_key=config.elasticsearch_api_key,
+            ca_certs=config.elasticsearch_ca_certs,
+            verify_certs=config.elasticsearch_verify_certs,
         ),
         observer=OpenTelemetryRetrievalObserver(),
     )

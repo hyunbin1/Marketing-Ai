@@ -23,8 +23,19 @@ class ElasticsearchCampaignDocumentSearch:
         url: str,
         index_name: str,
         profile: RetrievalProfile = BM25_WHOLE_DOCUMENT_PROFILE,
+        *,
+        api_key: str | None = None,
+        ca_certs: str | None = None,
+        verify_certs: bool = True,
     ) -> None:
-        self._client = Elasticsearch(url, request_timeout=5)
+        client_kwargs: dict[str, object] = {"request_timeout": 5}
+        if api_key:
+            client_kwargs["api_key"] = api_key
+        if url.startswith("https"):
+            client_kwargs["verify_certs"] = verify_certs
+            if ca_certs:
+                client_kwargs["ca_certs"] = ca_certs
+        self._client = Elasticsearch(url, **client_kwargs)
         self._index_name = index_name
         self._profile = profile.model_copy(update={"index_version": index_name})
 

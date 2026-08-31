@@ -20,6 +20,8 @@ services:
     image: docker.elastic.co/elasticsearch/elasticsearch:9.4.2
     environment:
       discovery.type: single-node
+      # Local dev only. Production MUST enable security and the app MUST connect
+      # with ELASTICSEARCH_API_KEY over TLS — see config._require_elasticsearch_security.
       xpack.security.enabled: "false"
       xpack.ml.enabled: "false"
       ES_JAVA_OPTS: -Xms512m -Xmx512m

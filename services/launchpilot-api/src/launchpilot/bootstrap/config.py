@@ -40,6 +40,24 @@ def _local_mock_base_url(value: str | None) -> str | None:
     return normalized
 
 
+def _require_elasticsearch_security(url: str, api_key: str | None) -> None:
+    """Refuse to connect to a non-local Elasticsearch without authentication.
+
+    Local development runs Elasticsearch with security disabled (see compose.yaml),
+    but a remote cluster reachable over the network must present an API key, or the
+    document index — which holds tenant campaign text — would be world-readable.
+    """
+    host = urlparse(url).hostname
+    if host in {"127.0.0.1", "localhost", "::1"}:
+        return
+    if not api_key:
+        raise RuntimeError(
+            "ELASTICSEARCH_URL points to a non-local cluster but ELASTICSEARCH_API_KEY "
+            "is not set. Refusing to connect to an unauthenticated Elasticsearch; set "
+            "ELASTICSEARCH_API_KEY."
+        )
+
+
 @dataclass(frozen=True, slots=True)
 class Settings:
     telemetry_enabled: bool
@@ -48,6 +66,9 @@ class Settings:
     database_url: str
     elasticsearch_url: str
     elasticsearch_index: str
+    elasticsearch_api_key: str | None
+    elasticsearch_ca_certs: str | None
+    elasticsearch_verify_certs: bool
     google_api_key: str | None
     google_genai_use_vertexai: bool
     google_cloud_project: str | None
@@ -88,6 +109,17 @@ class Settings:
             "true",
             "yes",
         }
+        elasticsearch_url = os.getenv(
+            "ELASTICSEARCH_URL", "http://127.0.0.1:9200"
+        ).rstrip("/")
+        elasticsearch_api_key = os.getenv("ELASTICSEARCH_API_KEY")
+        _require_elasticsearch_security(elasticsearch_url, elasticsearch_api_key)
+        elasticsearch_verify_value = os.getenv("ELASTICSEARCH_VERIFY_CERTS")
+        elasticsearch_verify_certs = (
+            elasticsearch_verify_value.lower() in {"1", "true", "yes"}
+            if elasticsearch_verify_value is not None
+            else True
+        )
         return cls(
             telemetry_enabled=telemetry_enabled,
             otel_service_name=os.getenv("OTEL_SERVICE_NAME", "launchpilot-api"),
@@ -99,10 +131,13 @@ class Settings:
                 "DATABASE_URL",
                 "postgresql://launchpilot:launchpilot-local@127.0.0.1:5432/launchpilot",
             ),
-            elasticsearch_url=os.getenv("ELASTICSEARCH_URL", "http://127.0.0.1:9200"),
+            elasticsearch_url=elasticsearch_url,
             elasticsearch_index=os.getenv(
                 "ELASTICSEARCH_INDEX", "launchpilot-documents-v1"
             ),
+            elasticsearch_api_key=elasticsearch_api_key,
+            elasticsearch_ca_certs=os.getenv("ELASTICSEARCH_CA_CERTS"),
+            elasticsearch_verify_certs=elasticsearch_verify_certs,
             google_api_key=os.getenv("GOOGLE_API_KEY"),
             google_genai_use_vertexai=use_vertexai,
             google_cloud_project=os.getenv("GOOGLE_CLOUD_PROJECT"),
