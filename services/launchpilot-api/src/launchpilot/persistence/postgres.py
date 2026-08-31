@@ -234,6 +234,144 @@ _MIGRATIONS = (
             ON retrieval_experiment_runs(execution_id, split, status);
         """,
     ),
+    (
+        5,
+        """
+        -- Tenant isolation foundation (Step 1a).
+        -- Denormalize workspace_id onto every tenant table so each RLS policy is a
+        -- single equality, then enable Row-Level Security. This migration is applied
+        -- by the superuser and does NOT break the app: while the runtime still
+        -- connects as the superuser it bypasses RLS. Enforcement is switched on in
+        -- Step 1b by connecting the runtime as the non-superuser app_user role.
+
+        -- 1) Backfill workspace_id on tables that only reference a campaign.
+        ALTER TABLE conversations ADD COLUMN IF NOT EXISTS workspace_id UUID;
+        UPDATE conversations c
+            SET workspace_id = ca.workspace_id
+            FROM campaigns ca
+            WHERE ca.id = c.campaign_id AND c.workspace_id IS NULL;
+        ALTER TABLE conversations ALTER COLUMN workspace_id SET NOT NULL;
+
+        ALTER TABLE campaign_observations ADD COLUMN IF NOT EXISTS workspace_id UUID;
+        UPDATE campaign_observations o
+            SET workspace_id = ca.workspace_id
+            FROM campaigns ca
+            WHERE ca.id = o.campaign_id AND o.workspace_id IS NULL;
+        ALTER TABLE campaign_observations ALTER COLUMN workspace_id SET NOT NULL;
+
+        ALTER TABLE external_campaign_bindings ADD COLUMN IF NOT EXISTS workspace_id UUID;
+        UPDATE external_campaign_bindings b
+            SET workspace_id = ca.workspace_id
+            FROM campaigns ca
+            WHERE ca.id = b.campaign_id AND b.workspace_id IS NULL;
+        ALTER TABLE external_campaign_bindings ALTER COLUMN workspace_id SET NOT NULL;
+
+        -- 2) Backfill the deep metric tables through campaign_observations.
+        ALTER TABLE platform_slices ADD COLUMN IF NOT EXISTS workspace_id UUID;
+        UPDATE platform_slices ps
+            SET workspace_id = ca.workspace_id
+            FROM campaign_observations co
+            JOIN campaigns ca ON ca.id = co.campaign_id
+            WHERE co.id = ps.observation_id AND ps.workspace_id IS NULL;
+        ALTER TABLE platform_slices ALTER COLUMN workspace_id SET NOT NULL;
+
+        ALTER TABLE metric_observations ADD COLUMN IF NOT EXISTS workspace_id UUID;
+        UPDATE metric_observations m
+            SET workspace_id = ca.workspace_id
+            FROM campaign_observations co
+            JOIN campaigns ca ON ca.id = co.campaign_id
+            WHERE co.id = m.observation_id AND m.workspace_id IS NULL;
+        ALTER TABLE metric_observations ALTER COLUMN workspace_id SET NOT NULL;
+
+        -- 3) Foreign keys + indexes for the backfilled columns (idempotent).
+        DO $$
+        BEGIN
+            IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'conversations_workspace_fk') THEN
+                ALTER TABLE conversations
+                    ADD CONSTRAINT conversations_workspace_fk
+                    FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE;
+            END IF;
+            IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'campaign_observations_workspace_fk') THEN
+                ALTER TABLE campaign_observations
+                    ADD CONSTRAINT campaign_observations_workspace_fk
+                    FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE;
+            END IF;
+            IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'external_campaign_bindings_workspace_fk') THEN
+                ALTER TABLE external_campaign_bindings
+                    ADD CONSTRAINT external_campaign_bindings_workspace_fk
+                    FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE;
+            END IF;
+        END $$;
+
+        CREATE INDEX IF NOT EXISTS conversations_workspace_idx ON conversations(workspace_id);
+        CREATE INDEX IF NOT EXISTS campaign_observations_workspace_idx ON campaign_observations(workspace_id);
+        CREATE INDEX IF NOT EXISTS external_campaign_bindings_workspace_idx ON external_campaign_bindings(workspace_id);
+        CREATE INDEX IF NOT EXISTS platform_slices_workspace_idx ON platform_slices(workspace_id);
+        CREATE INDEX IF NOT EXISTS metric_observations_workspace_idx ON metric_observations(workspace_id);
+
+        -- 4) Enable Row-Level Security + tenant policies on every tenant table.
+        --    The policy reads app.workspace_id set per request via SET LOCAL; when it
+        --    is unset the comparison is NULL, so no rows match (fail-closed).
+        ALTER TABLE campaigns ENABLE ROW LEVEL SECURITY;
+        DROP POLICY IF EXISTS campaigns_tenant_isolation ON campaigns;
+        CREATE POLICY campaigns_tenant_isolation ON campaigns
+            USING (workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid)
+            WITH CHECK (workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid);
+
+        ALTER TABLE campaign_documents ENABLE ROW LEVEL SECURITY;
+        DROP POLICY IF EXISTS campaign_documents_tenant_isolation ON campaign_documents;
+        CREATE POLICY campaign_documents_tenant_isolation ON campaign_documents
+            USING (workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid)
+            WITH CHECK (workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid);
+
+        ALTER TABLE conversations ENABLE ROW LEVEL SECURITY;
+        DROP POLICY IF EXISTS conversations_tenant_isolation ON conversations;
+        CREATE POLICY conversations_tenant_isolation ON conversations
+            USING (workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid)
+            WITH CHECK (workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid);
+
+        ALTER TABLE campaign_observations ENABLE ROW LEVEL SECURITY;
+        DROP POLICY IF EXISTS campaign_observations_tenant_isolation ON campaign_observations;
+        CREATE POLICY campaign_observations_tenant_isolation ON campaign_observations
+            USING (workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid)
+            WITH CHECK (workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid);
+
+        ALTER TABLE platform_slices ENABLE ROW LEVEL SECURITY;
+        DROP POLICY IF EXISTS platform_slices_tenant_isolation ON platform_slices;
+        CREATE POLICY platform_slices_tenant_isolation ON platform_slices
+            USING (workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid)
+            WITH CHECK (workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid);
+
+        ALTER TABLE metric_observations ENABLE ROW LEVEL SECURITY;
+        DROP POLICY IF EXISTS metric_observations_tenant_isolation ON metric_observations;
+        CREATE POLICY metric_observations_tenant_isolation ON metric_observations
+            USING (workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid)
+            WITH CHECK (workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid);
+
+        ALTER TABLE external_campaign_bindings ENABLE ROW LEVEL SECURITY;
+        DROP POLICY IF EXISTS external_campaign_bindings_tenant_isolation ON external_campaign_bindings;
+        CREATE POLICY external_campaign_bindings_tenant_isolation ON external_campaign_bindings
+            USING (workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid)
+            WITH CHECK (workspace_id = NULLIF(current_setting('app.workspace_id', true), '')::uuid);
+
+        -- 5) Create the non-superuser runtime role and grant it least-privilege DML.
+        --    NOSUPERUSER + NOBYPASSRLS is what makes RLS actually apply to the app.
+        --    LOGIN + password are provisioned per environment in Step 1b.
+        DO $$
+        BEGIN
+            IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'app_user') THEN
+                CREATE ROLE app_user NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE NOLOGIN;
+            END IF;
+        END $$;
+        GRANT USAGE ON SCHEMA public TO app_user;
+        GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO app_user;
+        GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO app_user;
+        ALTER DEFAULT PRIVILEGES IN SCHEMA public
+            GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO app_user;
+        ALTER DEFAULT PRIVILEGES IN SCHEMA public
+            GRANT USAGE, SELECT ON SEQUENCES TO app_user;
+        """,
+    ),
 )
 
 
